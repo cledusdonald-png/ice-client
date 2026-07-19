@@ -66,6 +66,7 @@ import com.iceclient.module.modules.groups.ChunkPing;
 import com.iceclient.module.modules.groups.PingAdjust;
 import com.iceclient.module.modules.hud.QuickDisplay;
 import com.iceclient.ping.PingManager;
+import com.iceclient.schematic.SelectionRenderer;
 import com.iceclient.module.modules.misc.Notifications;
 import com.iceclient.module.modules.misc.Screenshots;
 import com.iceclient.module.modules.render.MotionBlur;
@@ -215,6 +216,11 @@ public class ModuleManager {
       // Owns its own render hook so placed pings stay visible even if the
       // module that placed them is toggled off afterwards.
       PingManager.init();
+
+      // Same reason: Point A/B can be set from the workspace GUI, which has no
+      // idea whether SelectionTool is enabled, so the region follows the
+      // selection rather than that module's toggle.
+      SelectionRenderer.init();
    }
 
    private static void tag(Module m, ModuleCategory category, String group) {

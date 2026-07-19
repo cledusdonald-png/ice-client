@@ -9,25 +9,23 @@ import com.iceclient.setting.BooleanSetting;
 import com.iceclient.setting.ColorSetting;
 import com.iceclient.setting.KeybindSetting;
 import com.iceclient.util.BindUtil;
-import com.iceclient.util.ColorUtil;
-import com.iceclient.util.WorldRenderUtil;
-import net.minecraft.util.AxisAlignedBB;
 import net.minecraft.util.BlockPos;
 import net.minecraft.util.MovingObjectPosition;
-import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
 import org.lwjgl.input.Keyboard;
 
 /**
- * Sets and draws the Point A / Point B region used to save a schematic.
+ * Keybinds and styling for the Point A / Point B region used to save a
+ * schematic.
  *
  * <p>Points are taken from the block you are looking at rather than the block
  * you stand in -- you generally want to mark a corner of a wall you can see, and
  * standing precisely on a corner mid-raid is not realistic.
  *
- * <p>The region itself lives in {@link Selection} so the workspace GUI can read
- * the same corners this draws.
+ * <p>The region lives in {@link Selection} and is drawn by
+ * {@code SelectionRenderer}, not here -- see the note above the accessors for
+ * why the drawing is not gated on this module being enabled.
  */
 public class SelectionTool extends Module {
 
@@ -120,55 +118,40 @@ public class SelectionTool extends Module {
             : null;
    }
 
-   @SubscribeEvent
-   public void onRenderWorld(RenderWorldLastEvent event) {
-      if(!this.isEnabled()) {
-         return;
-      }
+   // --- Style, read by SelectionRenderer ---
+   //
+   // The drawing deliberately does NOT live here. Corners can be set from the
+   // workspace GUI's Points tab, which does not know or care whether this
+   // module is switched on -- so gating the render on isEnabled() meant setting
+   // two points and seeing nothing, with nothing on screen explaining why.
+   // SelectionRenderer draws whenever a selection exists; this module owns the
+   // keybinds and the look.
 
-      int color = this.boxColor.getRGB();
-      boolean through = this.throughWalls.get();
-
-      if(this.showCorners.get()) {
-         // A and B get their own colours so you can tell at a glance which
-         // corner you are about to move -- with one colour they are
-         // indistinguishable, and the region grows the wrong way if you guess.
-         this.drawCorner(Selection.getA(), this.colorA.getRGB(), through);
-         this.drawCorner(Selection.getB(), this.colorB.getRGB(), through);
-      }
-
-      if(this.showBox.get() && Selection.isComplete()) {
-         BlockPos lo = Selection.min();
-         BlockPos hi = Selection.max();
-
-         // +1 on the max corner because the region is inclusive: a selection
-         // from (0,0,0) to (0,0,0) is one block, not zero-sized.
-         WorldRenderUtil.outlineBox(new AxisAlignedBB(
-               (double)lo.getX(), (double)lo.getY(), (double)lo.getZ(),
-               (double)(hi.getX() + 1), (double)(hi.getY() + 1), (double)(hi.getZ() + 1)),
-               color, 2.0F, through);
-      }
-
+   public boolean showRegionBox() {
+      return this.showBox.get();
    }
 
-   private void drawCorner(BlockPos pos, int color, boolean through) {
-      if(pos == null) {
-         return;
-      }
+   public boolean showCornerMarkers() {
+      return this.showCorners.get();
+   }
 
-      // Inset very slightly so the corner marker does not z-fight with the
-      // region outline, which shares its edges when the region is one block.
-      AxisAlignedBB box = new AxisAlignedBB(
-            (double)pos.getX() + 0.002D, (double)pos.getY() + 0.002D, (double)pos.getZ() + 0.002D,
-            (double)(pos.getX() + 1) - 0.002D, (double)(pos.getY() + 1) - 0.002D,
-            (double)(pos.getZ() + 1) - 0.002D);
+   public boolean fillCornerBlocks() {
+      return this.fillCorners.get();
+   }
 
-      if(this.fillCorners.get()) {
-         // A translucent fill reads as a coloured block at distance, where a
-         // wireframe cube collapses into a dot.
-         WorldRenderUtil.filledBox(box, ColorUtil.withAlpha(color, 110));
-      }
+   public boolean drawThroughWalls() {
+      return this.throughWalls.get();
+   }
 
-      WorldRenderUtil.outlineBox(box, color, 2.5F, through);
+   public int pointAColor() {
+      return this.colorA.getRGB();
+   }
+
+   public int pointBColor() {
+      return this.colorB.getRGB();
+   }
+
+   public int regionColor() {
+      return this.boxColor.getRGB();
    }
 }
