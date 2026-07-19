@@ -39,6 +39,7 @@ public class BetterChat extends Module {
     */
    private final BooleanSetting copyNeedsShift = this.addBool("Copy needs Shift", true);
    private final BooleanSetting copyStripColors = this.addBool("Copy without colours", true);
+   private final BooleanSetting copyIcon = this.addBool("Show copy icon", true);
 
    public BetterChat() {
       super("BetterChat", "Longer scrollback, timestamps, resizable chat, copy lines", ModuleCategory.GENERAL);
@@ -55,6 +56,19 @@ public class BetterChat extends Module {
    public boolean copyStripColors() {
       return this.copyStripColors.get();
    }
+
+   public boolean showCopyIcon() {
+      return this.copyIcon.get();
+   }
+
+   /**
+    * Width of the clickable copy icon, in GUI pixels.
+    *
+    * <p>Shared with {@code MixinGuiChat} so the hit box and the drawn glyph can
+    * never disagree -- an icon you can see but not click, or the reverse, is
+    * worse than no icon.
+    */
+   public static final int COPY_ICON_W = 10;
 
    public int scrollback() {
       return (int)this.lines.get();
