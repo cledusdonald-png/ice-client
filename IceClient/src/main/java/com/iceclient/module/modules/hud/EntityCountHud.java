@@ -3,7 +3,7 @@ package com.iceclient.module.modules.hud;
 import com.iceclient.module.HudModule;
 import com.iceclient.module.ModuleCategory;
 import com.iceclient.module.TextHudModule;
-import com.iceclient.setting.BooleanSetting;
+import com.iceclient.setting.ModeSetting;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.item.EntityItem;
 import net.minecraft.entity.item.EntityTNTPrimed;
@@ -16,7 +16,13 @@ import java.util.List;
 /** Loaded entity counts -- the F3 numbers that actually matter while raiding. */
 public class EntityCountHud extends TextHudModule {
 
-   private final BooleanSetting split = (BooleanSetting)this.addSetting(new BooleanSetting("Split by type", true));
+   /**
+    * The per-type breakdown moved to {@code EntityBreakdownHud} in the Admin
+    * section -- its player count is the part worth hiding, and splitting them
+    * means this one can be positioned and sized on its own.
+    */
+   private final ModeSetting format = (ModeSetting)this.addSetting(
+         new ModeSetting("Format", "Count first", new String[]{"Count first", "Label first"}));
 
    public EntityCountHud() {
       super("Entity Count", "Counts loaded entities", ModuleCategory.HUD, HudModule.Anchor.TOP_LEFT, 110);
@@ -27,29 +33,9 @@ public class EntityCountHud extends TextHudModule {
          return Collections.emptyList();
       }
 
-      List<Entity> all = new ArrayList(this.mc.theWorld.loadedEntityList);
-      if(!this.split.get()) {
-         return Collections.singletonList("Entities: " + all.size());
-      }
-
-      int players = 0;
-      int items = 0;
-      int tnt = 0;
-      for(Entity e : all) {
-         if(e instanceof EntityPlayer) {
-            ++players;
-         } else if(e instanceof EntityItem) {
-            ++items;
-         } else if(e instanceof EntityTNTPrimed) {
-            ++tnt;
-         }
-      }
-
-      List<String> out = new ArrayList(4);
-      out.add("Entities: " + all.size());
-      out.add("Players: " + players);
-      out.add("Items: " + items);
-      out.add("TNT: " + tnt);
-      return out;
+      int n = this.mc.theWorld.loadedEntityList.size();
+      return Collections.singletonList(this.format.is("Label first")
+            ? "Entities: " + n
+            : n + " Entities");
    }
 }

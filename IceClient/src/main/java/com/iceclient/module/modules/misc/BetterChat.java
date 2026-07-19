@@ -32,8 +32,28 @@ public class BetterChat extends Module {
    private final NumberSetting heightUnfocused =
          this.addNumber("Height (closed)", 90.0D, 20.0D, 300.0D, 10.0D);
 
+   private final BooleanSetting copyOnClick = this.addBool("Click line to copy", true);
+   /**
+    * On by default so an ordinary click still follows links and runs the
+    * server's clickable commands -- taking every chat click would break those.
+    */
+   private final BooleanSetting copyNeedsShift = this.addBool("Copy needs Shift", true);
+   private final BooleanSetting copyStripColors = this.addBool("Copy without colours", true);
+
    public BetterChat() {
-      super("BetterChat", "Longer scrollback, timestamps, resizable chat box", ModuleCategory.GENERAL);
+      super("BetterChat", "Longer scrollback, timestamps, resizable chat, copy lines", ModuleCategory.GENERAL);
+   }
+
+   public boolean copyOnClick() {
+      return this.copyOnClick.get();
+   }
+
+   public boolean copyNeedsShift() {
+      return this.copyNeedsShift.get();
+   }
+
+   public boolean copyStripColors() {
+      return this.copyStripColors.get();
    }
 
    public int scrollback() {

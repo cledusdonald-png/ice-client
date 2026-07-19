@@ -2204,7 +2204,7 @@ public class ClickGuiScreen extends GuiScreen {
     */
    private java.util.List<Module> fpsModules() {
       String[] names = new String[]{"FPS", "FPS Particles", "Clear Water", "Fullbright",
-            "No Fog", "No Weather", "No Fire", "Chunk Borders", "Hit Boxes", "Trails", "Nametags"};
+            "No Fog", "No Weather", "No Fire", "Chunk Borders", "Hit Boxes", "Clear Glass", "Nametags"};
       java.util.List<Module> out = new java.util.ArrayList();
 
       for(String n : names) {

@@ -51,9 +51,17 @@ public class RallyWaypointModule extends Module {
    private static final Pattern NAME = Pattern.compile("\\b([A-Za-z0-9_]{3,16})\\b");
    private final NumberSetting minutes = (NumberSetting)this.addSetting(new NumberSetting("Minutes", 3.0D, 1.0D, 15.0D, 1.0D));
    private final BooleanSetting beam = (BooleanSetting)this.addSetting(new BooleanSetting("Beam", true));
-   // Was 15 -- the beam vanished whenever you got close to the rally, which is
-   // exactly when you're looking for it. 0 means always draw.
-   private final NumberSetting beamFrom = (NumberSetting)this.addSetting(new NumberSetting("Beam past (m)", 0.0D, 0.0D, 100.0D, 5.0D));
+   /**
+    * Suppresses the beam when you are closer than this, for people who find it
+    * blocks the view once they have arrived. 0 -- the default -- always draws.
+    *
+    * <p>Renamed from "Beam past (m)", which read as "draw the beam past here"
+    * and was the opposite of what it does. It shipped defaulting to 15, so
+    * anyone who kept that value saw no beam at all until they were 15 blocks
+    * out and reasonably concluded the feature was broken. The rename also
+    * resets the stored value, which clears that state.
+    */
+   private final NumberSetting beamFrom = (NumberSetting)this.addSetting(new NumberSetting("Hide beam within (m)", 0.0D, 0.0D, 100.0D, 5.0D));
    // The original only cleared the depth *mask*, so the beam still depth-tested
    // and any terrain in front hid it -- underground or inside a base it was
    // invisible at every range. The ring already draws through walls; this makes
