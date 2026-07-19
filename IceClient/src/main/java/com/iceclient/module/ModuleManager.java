@@ -65,6 +65,7 @@ import com.iceclient.module.modules.groups.PingBlock;
 import com.iceclient.module.modules.groups.ChunkPing;
 import com.iceclient.module.modules.groups.PingAdjust;
 import com.iceclient.module.modules.hud.QuickDisplay;
+import com.iceclient.module.modules.admin.PlayerRadar;
 import com.iceclient.ping.PingManager;
 import com.iceclient.schematic.SelectionRenderer;
 import com.iceclient.module.modules.misc.Notifications;
@@ -149,7 +150,7 @@ public class ModuleManager {
       tag(register(new EntityCountHud()), ModuleCategory.HUD, (String)null);
       tag(register(new PlaytimeHud()), ModuleCategory.HUD, (String)null);
       tag(register(new ObsidianCounterHud()), ModuleCategory.HUD, (String)null);
-      tag(register(new FactionDisplayHud()), ModuleCategory.HUD, (String)null);
+      tag(register(new FactionDisplayHud()), ModuleCategory.ADMIN, (String)null);
       tag(register(new ResourcePackHud()), ModuleCategory.HUD, (String)null);
       tag(register(new SaturationHud()), ModuleCategory.HUD, (String)null);
       tag(register(new ChunkBorders()), ModuleCategory.MECHANIC, (String)null);
@@ -168,7 +169,8 @@ public class ModuleManager {
       tag(register(new ItemSearch()), ModuleCategory.MECHANIC, (String)null);
       tag(register(new FovMod()), ModuleCategory.MECHANIC, (String)null);
       tag(register(new ItemLock()), ModuleCategory.MECHANIC, (String)null);
-      tag(register(new ImprovedHitBoxes()), ModuleCategory.MECHANIC, (String)null);
+      tag(register(new ImprovedHitBoxes()), ModuleCategory.ADMIN, (String)null);
+      tag(register(new PlayerRadar()), ModuleCategory.ADMIN, (String)null);
       tag(register(new Trails()), ModuleCategory.MECHANIC, (String)null);
       tag(register(new ClearWater()), ModuleCategory.MECHANIC, (String)null);
       tag(register(new FpsParticles()), ModuleCategory.MECHANIC, (String)null);

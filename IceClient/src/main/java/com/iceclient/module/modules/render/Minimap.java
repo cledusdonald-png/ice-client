@@ -2,6 +2,7 @@ package com.iceclient.module.modules.render;
 
 import com.iceclient.gui.WorldMapScreen;
 import com.iceclient.minimap.MapChunk;
+import com.iceclient.module.modules.admin.PlayerRadar;
 import com.iceclient.minimap.MinimapCache;
 import com.iceclient.module.HudModule;
 import com.iceclient.module.ModuleCategory;
@@ -65,12 +66,11 @@ public class Minimap extends HudModule {
    private final ModeSetting markerStyle = this.addMode("Player marker", "Arrow", "Arrow", "Triangle", "Dot");
    private final NumberSetting markerSize = this.addNumber("Marker size", 1.0D, 0.5D, 3.0D, 0.1D);
 
-   private final BooleanSetting playerRadar = this.addBool("Player radar", true);
-   private final NumberSetting headSize = this.addNumber("Player head size", 1.0D, 0.5D, 2.5D, 0.1D);
-   private final BooleanSetting playerNames = this.addBool("Player names", true);
-   private final NumberSetting nameSize = this.addNumber("Player name size", 0.5D, 0.25D, 1.0D, 0.05D);
-   private final BooleanSetting hostileMobs = this.addBool("Hostile mobs", false);
-   private final BooleanSetting passiveMobs = this.addBool("Passive mobs", false);
+   // The entity markers (player heads, names, mob dots) now live on the Admin
+   // section's Player Radar module. Categories apply to modules and not to
+   // individual settings, so giving them their own module was the only way to
+   // move them out of this panel. The map's own arrow stays here -- marking
+   // where you are gives nothing away.
 
    private final BooleanSetting worldMapOn = this.addBool("World map", true);
 
@@ -357,6 +357,14 @@ public class Minimap extends HudModule {
     * names themselves, which looks wrong for flat markers.
     */
    private void drawRadar(int cx, int cy, int w, int h, float yaw) {
+      // Null until Player Radar is registered, and its accessors already return
+      // false when the module is off -- so a locked or disabled Admin section
+      // simply draws no entities.
+      PlayerRadar radar = PlayerRadar.get();
+      if(radar == null) {
+         return;
+      }
+
       double pxPerBlock = 1.0D / this.blocksPerPixel() * ((double)Math.max(w, h) / (double)TEX);
       double rad = Math.toRadians((double)yaw);
       double cos = Math.cos(rad);
@@ -368,7 +376,7 @@ public class Minimap extends HudModule {
       int radius = Math.min(limitX, limitY);
 
       for(Entity e : this.mc.theWorld.loadedEntityList) {
-         if(e == this.mc.thePlayer || !this.shouldShow(e)) {
+         if(e == this.mc.thePlayer || !this.shouldShow(radar, e)) {
             continue;
          }
 
@@ -388,8 +396,8 @@ public class Minimap extends HudModule {
             continue;
          }
 
-         if(e instanceof EntityPlayer && this.playerRadar.get()) {
-            this.drawPlayerBlip((EntityPlayer)e, cx + dx, cy + dy);
+         if(e instanceof EntityPlayer && radar.showPlayers()) {
+            this.drawPlayerBlip(radar, (EntityPlayer)e, cx + dx, cy + dy);
          } else {
             Gui.drawRect(cx + dx - 1, cy + dy - 1, cx + dx + 1, cy + dy + 1, this.mobColor(e));
          }
@@ -397,13 +405,13 @@ public class Minimap extends HudModule {
 
    }
 
-   private boolean shouldShow(Entity e) {
+   private boolean shouldShow(PlayerRadar radar, Entity e) {
       if(e instanceof EntityPlayer) {
-         return this.playerRadar.get();
+         return radar.showPlayers();
       } else if(e instanceof IMob) {
-         return this.hostileMobs.get();
+         return radar.showHostiles();
       } else if(e instanceof IAnimals || e instanceof EntityLiving) {
-         return this.passiveMobs.get();
+         return radar.showPassives();
       } else {
          return false;
       }
@@ -414,8 +422,8 @@ public class Minimap extends HudModule {
    }
 
    /** A player's face from their skin, with their name above it. */
-   private void drawPlayerBlip(EntityPlayer p, int sx, int sy) {
-      int size = Math.max(4, Math.round(8.0F * (float)this.headSize.get()));
+   private void drawPlayerBlip(PlayerRadar radar, EntityPlayer p, int sx, int sy) {
+      int size = Math.max(4, Math.round(8.0F * (float)radar.headSize()));
       int hx = sx - size / 2;
       int hy = sy - size / 2;
 
@@ -434,8 +442,8 @@ public class Minimap extends HudModule {
          Gui.drawRect(hx, hy, hx + size, hy + size, 0xFFFFFFFF);
       }
 
-      if(this.playerNames.get()) {
-         this.drawScaledName(p.getName(), sx, hy - 2, (float)this.nameSize.get());
+      if(radar.showNames()) {
+         this.drawScaledName(p.getName(), sx, hy - 2, (float)radar.nameSize());
       }
 
    }

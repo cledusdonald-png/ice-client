@@ -27,6 +27,14 @@ public class PotionStatusModule extends HudModule {
    private static final int PAD = 2;
 
    private final BooleanSetting showIcons = (BooleanSetting)this.addSetting(new BooleanSetting("Show icons", true));
+   /**
+    * Icon-only mode: drop the effect name and keep the sprite.
+    *
+    * <p>You already know what the icon means, and the name is the widest part
+    * of the element -- "Fire Resistance" is most of the panel's width for
+    * information the picture already carried.
+    */
+   private final BooleanSetting showNames = (BooleanSetting)this.addSetting(new BooleanSetting("Show names", true));
    private final BooleanSetting showTimer = (BooleanSetting)this.addSetting(new BooleanSetting("Show timer", true));
    private final BooleanSetting showAmplifier = (BooleanSetting)this.addSetting(new BooleanSetting("Show level", true));
    private final BooleanSetting hideAmbient = (BooleanSetting)this.addSetting(new BooleanSetting("Hide beacon effects", false));
@@ -72,13 +80,20 @@ public class PotionStatusModule extends HudModule {
 
       int w = 0;
       for(PotionEffect e : list) {
-         w = Math.max(w, this.mc.fontRendererObj.getStringWidth(this.nameOf(e)));
+         if(this.showNames.get()) {
+            w = Math.max(w, this.mc.fontRendererObj.getStringWidth(this.nameOf(e)));
+         }
+
          if(this.showTimer.get()) {
             w = Math.max(w, this.mc.fontRendererObj.getStringWidth(this.timeOf(e)));
          }
       }
 
-      return w + (this.showIcons.get() ? ICON + 4 : 0) + PAD * 2;
+      // The 4px gap only exists to separate the icon from text, so drop it when
+      // there is no text -- otherwise icon-only mode keeps a trailing margin.
+      boolean icons = this.showIcons.get();
+      boolean text = this.showNames.get() || this.showTimer.get();
+      return w + (icons ? ICON + (text ? 4 : 0) : 0) + PAD * 2;
    }
 
    public int getHeight() {
@@ -112,12 +127,19 @@ public class PotionStatusModule extends HudModule {
             GlStateManager.disableBlend();
          }
 
+         boolean named = this.showNames.get();
          boolean timed = this.showTimer.get();
-         int nameY = timed ? rowY + 1 : rowY + (ROW_H - 8) / 2;
-         this.drawLine(this.nameOf(e), textX, nameY, this.styledColorOr(this.nameColor.getRGB()));
+
+         if(named) {
+            int nameY = timed ? rowY + 1 : rowY + (ROW_H - 8) / 2;
+            this.drawLine(this.nameOf(e), textX, nameY, this.styledColorOr(this.nameColor.getRGB()));
+         }
 
          if(timed) {
-            this.drawLine(this.timeOf(e), textX, rowY + 11, this.timerColor.getRGB());
+            // With no name above it the timer is the only line, so it centres
+            // against the icon instead of sitting where the second line was.
+            int timerY = named ? rowY + 11 : rowY + (ROW_H - 8) / 2;
+            this.drawLine(this.timeOf(e), textX, timerY, this.timerColor.getRGB());
          }
 
          rowY += ROW_H;

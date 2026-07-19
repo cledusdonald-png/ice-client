@@ -62,7 +62,7 @@ public class HudEditorScreen extends GuiScreen {
       this.drawDefaultBackground();
       ScaledResolution res = new ScaledResolution(this.mc);
       String title = "HUD EDITOR";
-      String hint = "Drag to move  -  Scroll to resize  -  Pick a colour below  -  Esc to save";
+      String hint = "Drag to move  -  Scroll to resize  -  Ctrl+Scroll resizes everything  -  R resets  -  Esc to save";
       this.fontRendererObj.drawStringWithShadow(title, (float)(res.getScaledWidth() / 2 - this.fontRendererObj.getStringWidth(title) / 2), 8.0F, -1379073);
       this.fontRendererObj.drawStringWithShadow(hint, (float)(res.getScaledWidth() / 2 - this.fontRendererObj.getStringWidth(hint) / 2), 20.0F, -8615271);
 
@@ -138,6 +138,20 @@ public class HudEditorScreen extends GuiScreen {
       super.handleMouseInput();
       int wheel = Mouse.getEventDWheel();
       if(wheel != 0) {
+         float step = wheel > 0 ? 0.05F : -0.05F;
+
+         // Ctrl+scroll resizes every element at once, anywhere on screen.
+         // Sizing twenty elements one at a time to match is the tedious part of
+         // laying out a HUD, and it does not need the cursor to be over
+         // anything in particular.
+         if(isCtrlKeyDown()) {
+            for(HudModule h : this.hudModules()) {
+               h.setScale(h.getScale() + step);
+            }
+
+            return;
+         }
+
          ScaledResolution res = new ScaledResolution(this.mc);
          int mouseX = Mouse.getEventX() * res.getScaledWidth() / this.mc.displayWidth;
          int mouseY = res.getScaledHeight() - Mouse.getEventY() * res.getScaledHeight() / this.mc.displayHeight - 1;
@@ -148,13 +162,32 @@ public class HudEditorScreen extends GuiScreen {
             int x = h.getPosX();
             int y = h.getPosY();
             if(mouseX >= x && mouseX <= x + this.boxW(h) && mouseY >= y && mouseY <= y + this.boxH(h)) {
-               h.setScale(h.getScale() + (wheel > 0?0.05F:-0.05F));
+               h.setScale(h.getScale() + step);
                this.selected = h;
                return;
             }
          }
 
       }
+   }
+
+   protected void keyTyped(char typedChar, int keyCode) throws IOException {
+      // R resets: the selected element alone, or every element with Ctrl held.
+      // Scaling is easy to overshoot and there is otherwise no way back to 1x
+      // short of dragging the slider by eye.
+      if(keyCode == 19) {
+         if(isCtrlKeyDown()) {
+            for(HudModule h : this.hudModules()) {
+               h.setScale(1.0F);
+            }
+         } else if(this.selected != null) {
+            this.selected.setScale(1.0F);
+         }
+
+         return;
+      }
+
+      super.keyTyped(typedChar, keyCode);
    }
 
    protected void mouseClicked(int mouseX, int mouseY, int mouseButton) throws IOException {

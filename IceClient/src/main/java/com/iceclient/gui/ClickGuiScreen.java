@@ -1,5 +1,6 @@
 package com.iceclient.gui;
 
+import com.iceclient.admin.AdminAccess;
 import com.iceclient.util.BindUtil;
 import com.iceclient.config.ConfigManager;
 import com.iceclient.gui.HudEditorScreen;
@@ -148,6 +149,8 @@ public class ClickGuiScreen extends GuiScreen {
       this.nav.add(this.navItem("FPS", ClickGuiScreen.View.FPS, y));
       y = y + 24;
       this.nav.add(this.navItem("Schematic", ClickGuiScreen.View.SCHEMATIC, y));
+      y = y + 24;
+      this.nav.add(this.navItem("Admin", ClickGuiScreen.View.ADMIN, y));
       ClickGuiScreen.NavItem hud = new ClickGuiScreen.NavItem();
       hud.label = "Edit HUD";
       hud.action = true;
@@ -201,6 +204,41 @@ public class ClickGuiScreen extends GuiScreen {
       t.h = 18;
    }
 
+   /** Typed passphrase, masked on screen, and the last attempt's result. */
+   private String adminInput = "";
+   private boolean adminFailed;
+
+   /**
+    * The unlock prompt.
+    *
+    * <p>Masked purely so the passphrase is not readable over a shoulder or in a
+    * screenshot -- the same and only thing this whole gate achieves. It is not
+    * a secret from anyone holding the jar.
+    */
+   private void drawAdminPrompt(int mouseX, int mouseY) {
+      int x = this.contentX;
+      int y = this.contentY + 40;
+
+      this.fontRendererObj.drawStringWithShadow("Enter passphrase to unlock:", (float)x, (float)y, -8088413);
+
+      int boxW = Math.min(220, this.contentW);
+      this.roundRect(x, y + 14, x + boxW, y + 32, 3.0F, -14141369);
+
+      StringBuilder masked = new StringBuilder();
+      for(int i = 0; i < this.adminInput.length(); ++i) {
+         masked.append('*');
+      }
+
+      this.fontRendererObj.drawStringWithShadow(masked.toString() + "_", (float)(x + 6), (float)(y + 19), -1379073);
+
+      if(this.adminFailed) {
+         this.fontRendererObj.drawStringWithShadow("Incorrect.", (float)x, (float)(y + 38), -43691);
+      }
+
+      this.fontRendererObj.drawStringWithShadow("Type, then press Enter. Re-locks on restart.",
+            (float)x, (float)(y + 54), -10461088);
+   }
+
    private void buildCards() {
       this.cards.clear();
       Map<String, ClickGuiScreen.Card> groups = new LinkedHashMap();
@@ -208,6 +246,14 @@ public class ClickGuiScreen extends GuiScreen {
       String q = this.search.trim().toLowerCase();
 
       for(Module m : ModuleManager.getModules()) {
+         // Admin modules appear only on their own page. Without this they would
+         // show on the "All" tab and in search results, which defeats the point
+         // of hiding them.
+         if(m.getCategory() == ModuleCategory.ADMIN
+               && this.selectedCategory != ModuleCategory.ADMIN) {
+            continue;
+         }
+
          if(this.selectedCategory == null || m.getCategory() == this.selectedCategory) {
             if(m.getGroupName() != null) {
                ClickGuiScreen.Card gc = (ClickGuiScreen.Card)groups.get(m.getGroupName());
@@ -321,6 +367,16 @@ public class ClickGuiScreen extends GuiScreen {
          this.enableScissor(this.contentX, this.contentY, this.contentW, this.contentH);
          this.drawFpsPage(mx, my);
          this.disableScissor();
+      } else if(this.view == ClickGuiScreen.View.ADMIN) {
+         if(AdminAccess.isUnlocked()) {
+            this.drawPageHeader("Admin", "Hidden modules -- unlocked for this session");
+            this.enableScissor(this.gridX, this.gridY, this.gridW, this.gridH);
+            this.drawGrid(mx, my);
+            this.disableScissor();
+         } else {
+            this.drawPageHeader("Admin", "Locked");
+            this.drawAdminPrompt(mx, my);
+         }
       } else {
          this.drawSchematicHeader();
          this.layoutSchematic();
@@ -827,6 +883,20 @@ public class ClickGuiScreen extends GuiScreen {
                } else {
                   this.view = n.view;
                   this.scrollY = 0;
+
+                  // The grid is category-driven, so entering and leaving Admin
+                  // has to move the selection with it -- otherwise Admin would
+                  // show the previous tab's modules, or the Modules page would
+                  // come back still pinned to Admin.
+                  if(n.view == ClickGuiScreen.View.ADMIN) {
+                     this.selectedCategory = ModuleCategory.ADMIN;
+                     this.adminInput = "";
+                     this.adminFailed = false;
+                  } else if(this.selectedCategory == ModuleCategory.ADMIN) {
+                     this.selectedCategory = null;
+                  }
+
+                  this.buildCards();
                }
 
                return;
@@ -837,12 +907,23 @@ public class ClickGuiScreen extends GuiScreen {
             this.handleMacrosClick(mouseX, mouseY, mouseButton);
          } else if(this.view == ClickGuiScreen.View.FPS) {
             this.handleFpsClick(mouseX, mouseY, mouseButton);
-         } else if(this.view != ClickGuiScreen.View.MODULES) {
+         } else if(this.view == ClickGuiScreen.View.ADMIN && !AdminAccess.isUnlocked()) {
+            // Locked: the prompt is keyboard-only, so swallow clicks rather
+            // than letting them fall through to the schematic handler.
+            return;
+         } else if(this.view != ClickGuiScreen.View.MODULES
+               && this.view != ClickGuiScreen.View.ADMIN) {
             this.handleSchematicClick(mouseX, mouseY, mouseButton);
          } else {
-            this.searchFocused = mouseX >= this.searchX && mouseX <= this.searchX + this.searchW && mouseY >= this.searchY && mouseY <= this.searchY + this.searchH;
+            // The Admin page reuses the module grid but has no search box or
+            // category tabs of its own -- it is always one fixed category.
+            boolean modules = this.view == ClickGuiScreen.View.MODULES;
+
+            this.searchFocused = modules
+                  && mouseX >= this.searchX && mouseX <= this.searchX + this.searchW
+                  && mouseY >= this.searchY && mouseY <= this.searchY + this.searchH;
             if(!this.searchFocused) {
-               for(ClickGuiScreen.TabItem t : this.tabs) {
+               for(ClickGuiScreen.TabItem t : modules ? this.tabs : new ArrayList<ClickGuiScreen.TabItem>()) {
                   if(mouseX >= t.x && mouseX <= t.x + t.w && mouseY >= t.y && mouseY <= t.y + t.h) {
                      this.selectedCategory = t.category;
                      this.scrollY = 0;
@@ -973,6 +1054,32 @@ public class ClickGuiScreen extends GuiScreen {
          boolean clear = keyCode == 1 || keyCode == 211 || keyCode == 14;
          this.bindingMacro.setKeyCode(clear ? 0 : keyCode);
          this.bindingMacro = null;
+         return;
+      }
+
+      // Typing the Admin passphrase. First, so no other text route can eat the
+      // keystrokes while the prompt is up.
+      if(this.view == ClickGuiScreen.View.ADMIN && !AdminAccess.isUnlocked()) {
+         if(keyCode == 28 || keyCode == 156) {
+            this.adminFailed = !AdminAccess.tryUnlock(this.adminInput);
+            this.adminInput = "";
+            if(AdminAccess.isUnlocked()) {
+               this.selectedCategory = ModuleCategory.ADMIN;
+               this.buildCards();
+            }
+         } else if(keyCode == 1) {
+            this.view = ClickGuiScreen.View.MODULES;
+            this.selectedCategory = null;
+            this.adminInput = "";
+            this.buildCards();
+         } else if(keyCode == 14) {
+            if(!this.adminInput.isEmpty()) {
+               this.adminInput = this.adminInput.substring(0, this.adminInput.length() - 1);
+            }
+         } else if(typedChar >= 32 && typedChar != 127 && this.adminInput.length() < 64) {
+            this.adminInput = this.adminInput + typedChar;
+         }
+
          return;
       }
 
@@ -2205,7 +2312,8 @@ public class ClickGuiScreen extends GuiScreen {
       MODULES,
       MACROS,
       FPS,
-      SCHEMATIC;
+      SCHEMATIC,
+      ADMIN;
 
       private View() {
       }

@@ -4,6 +4,7 @@ import com.iceclient.module.Module;
 import com.iceclient.module.ModuleCategory;
 import com.iceclient.setting.BooleanSetting;
 import com.iceclient.setting.ColorSetting;
+import com.iceclient.setting.ModeSetting;
 import com.iceclient.setting.NumberSetting;
 import com.iceclient.util.ColorUtil;
 import com.iceclient.util.WorldRenderUtil;
@@ -33,7 +34,17 @@ import java.util.UUID;
 public class Trails extends Module {
 
    private final NumberSetting length = (NumberSetting)this.addSetting(new NumberSetting("Length (blocks)", 10.0D, 2.0D, 64.0D, 1.0D));
-   private final NumberSetting lineWidth = (NumberSetting)this.addSetting(new NumberSetting("Line width", 2.0D, 1.0D, 5.0D, 0.5D));
+   /**
+    * Line mode uses {@code glLineWidth}, which most drivers clamp around 10px
+    * and which never scales with distance -- a "thick" trail looks identical
+    * 100 blocks away. Ribbon mode draws camera-facing quads with a real
+    * world-space width instead, so it thins out with distance like a solid
+    * object and can go far wider than the driver cap.
+    */
+   private final ModeSetting style = (ModeSetting)this.addSetting(new ModeSetting("Style", "Line", new String[]{"Line", "Ribbon"}));
+   private final NumberSetting lineWidth = (NumberSetting)this.addSetting(new NumberSetting("Line width", 2.0D, 1.0D, 10.0D, 0.5D));
+   private final NumberSetting ribbonWidth = (NumberSetting)this.addSetting(new NumberSetting("Ribbon width", 0.15D, 0.02D, 1.5D, 0.01D));
+   private final NumberSetting heightOffset = (NumberSetting)this.addSetting(new NumberSetting("Height offset", 0.1D, 0.0D, 2.0D, 0.05D));
    private final NumberSetting timeout = (NumberSetting)this.addSetting(new NumberSetting("Timeout (s)", 10.0D, 1.0D, 60.0D, 1.0D));
    private final BooleanSetting selfTrail = (BooleanSetting)this.addSetting(new BooleanSetting("Own trail", false));
    private final BooleanSetting throughWalls = (BooleanSetting)this.addSetting(new BooleanSetting("Through walls", true));
@@ -167,22 +178,29 @@ public class Trails extends Module {
       GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
       GL11.glLineWidth((float)this.lineWidth.get());
 
+      boolean ribbon = this.style.is("Ribbon");
+      double lift = this.heightOffset.get();
+
       for(Trail t : new ArrayList<Trail>(this.trails.values())) {
          if(t.points.size() < 2) {
             continue;
          }
 
-         GL11.glBegin(GL11.GL_LINE_STRIP);
-         int n = t.points.size();
-         for(int i = 0; i < n; ++i) {
-            double[] p = t.points.get(i);
-            // Oldest end of the trail fades out, so direction of travel reads.
-            float alpha = this.fade.get() ? Math.max(0.1F, (float)(i + 1) / (float)n) : 1.0F;
-            GL11.glColor4f(r, g, b, alpha);
-            GL11.glVertex3d(p[0], p[1] + 0.1D, p[2]);
-         }
+         if(ribbon) {
+            this.drawRibbon(t, r, g, b, lift);
+         } else {
+            GL11.glBegin(GL11.GL_LINE_STRIP);
+            int n = t.points.size();
+            for(int i = 0; i < n; ++i) {
+               double[] p = t.points.get(i);
+               // Oldest end of the trail fades out, so direction of travel reads.
+               float alpha = this.fade.get() ? Math.max(0.1F, (float)(i + 1) / (float)n) : 1.0F;
+               GL11.glColor4f(r, g, b, alpha);
+               GL11.glVertex3d(p[0], p[1] + lift, p[2]);
+            }
 
-         GL11.glEnd();
+            GL11.glEnd();
+         }
       }
 
       GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
@@ -190,5 +208,74 @@ public class Trails extends Module {
       GL11.glDisable(GL11.GL_BLEND);
       GL11.glEnable(GL11.GL_TEXTURE_2D);
       GlStateManager.popMatrix();
+   }
+
+   /**
+    * Draws the trail as a strip of camera-facing quads.
+    *
+    * <p>Each segment is widened along the axis perpendicular to both its own
+    * direction and the direction to the camera. That is what keeps the ribbon
+    * edge-on-proof: widening along a fixed axis instead would make the trail
+    * vanish to a hairline whenever you happened to view it along that axis.
+    */
+   private void drawRibbon(Trail t, float r, float g, float b, double lift) {
+      double half = this.ribbonWidth.get() / 2.0D;
+      double camX = WorldRenderUtil.camX();
+      double camY = WorldRenderUtil.camY();
+      double camZ = WorldRenderUtil.camZ();
+
+      int n = t.points.size();
+
+      // A quad strip has a facing; without this the ribbon disappears whenever
+      // you view it from the other side.
+      GlStateManager.disableCull();
+      GL11.glBegin(GL11.GL_QUAD_STRIP);
+
+      for(int i = 0; i < n; ++i) {
+         double[] p = t.points.get(i);
+         // Direction of travel at this point: use the neighbouring segment,
+         // falling back to the previous one at the very end of the strip.
+         double[] q = t.points.get(i < n - 1 ? i + 1 : i - 1);
+
+         double dx = q[0] - p[0];
+         double dy = q[1] - p[1];
+         double dz = q[2] - p[2];
+         if(i == n - 1) {
+            dx = -dx;
+            dy = -dy;
+            dz = -dz;
+         }
+
+         double vx = p[0] - camX;
+         double vy = p[1] + lift - camY;
+         double vz = p[2] - camZ;
+
+         // perpendicular = direction x toCamera
+         double px = dy * vz - dz * vy;
+         double py = dz * vx - dx * vz;
+         double pz = dx * vy - dy * vx;
+
+         double len = Math.sqrt(px * px + py * py + pz * pz);
+         if(len < 1.0E-6D) {
+            // Segment points straight at the camera: no meaningful
+            // perpendicular, so fall back to horizontal rather than emit NaN.
+            px = 1.0D;
+            py = 0.0D;
+            pz = 0.0D;
+            len = 1.0D;
+         }
+
+         px = px / len * half;
+         py = py / len * half;
+         pz = pz / len * half;
+
+         float alpha = this.fade.get() ? Math.max(0.1F, (float)(i + 1) / (float)n) : 1.0F;
+         GL11.glColor4f(r, g, b, alpha);
+         GL11.glVertex3d(p[0] + px, p[1] + lift + py, p[2] + pz);
+         GL11.glVertex3d(p[0] - px, p[1] + lift - py, p[2] - pz);
+      }
+
+      GL11.glEnd();
+      GlStateManager.enableCull();
    }
 }

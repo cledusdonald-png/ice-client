@@ -3,6 +3,7 @@ package com.iceclient.module.modules.factions;
 import com.iceclient.module.Module;
 import com.iceclient.module.ModuleCategory;
 import com.iceclient.setting.BooleanSetting;
+import com.iceclient.setting.ColorSetting;
 import com.iceclient.setting.ModeSetting;
 import com.iceclient.setting.NumberSetting;
 import java.util.regex.Matcher;
@@ -62,7 +63,12 @@ public class RallyWaypointModule extends Module {
    private final NumberSetting beamAlpha = (NumberSetting)this.addSetting(new NumberSetting("Beam alpha", 0.45D, 0.05D, 1.0D, 0.05D));
    private final NumberSetting beamHeight = (NumberSetting)this.addSetting(new NumberSetting("Beam height", 256.0D, 8.0D, 512.0D, 8.0D));
    private final NumberSetting beamOffsetY = (NumberSetting)this.addSetting(new NumberSetting("Beam start Y offset", 0.0D, -64.0D, 64.0D, 1.0D));
-   private final ModeSetting color = (ModeSetting)this.addSetting(new ModeSetting("Color", "Red", new String[]{"Red", "Aqua", "Green", "Yellow"}));
+   /**
+    * Full picker rather than the four presets this used to offer, matching
+    * {@code Waypoints} -- the two markers are the same kind of thing and there
+    * was no reason a rally could only be one of four colours.
+    */
+   private final ColorSetting color = (ColorSetting)this.addSetting(new ColorSetting("Color", 0xFFFF4040));
    private final BooleanSetting announce = (BooleanSetting)this.addSetting(new BooleanSetting("Announce in chat", true));
    // Ground marker: the white ring + centre dot that sits at the rally spot.
    private final BooleanSetting ring = (BooleanSetting)this.addSetting(new BooleanSetting("Ground ring", true));
@@ -263,7 +269,13 @@ public class RallyWaypointModule extends Module {
       GlStateManager.popMatrix();
    }
 
+   /** The picked colour as the float triple the render helpers want. */
    private float[] rgb() {
-      return this.color.is("Aqua")?new float[]{0.2F, 0.9F, 1.0F}:(this.color.is("Green")?new float[]{0.2F, 1.0F, 0.3F}:(this.color.is("Yellow")?new float[]{1.0F, 0.9F, 0.2F}:new float[]{1.0F, 0.25F, 0.25F}));
+      int c = this.color.getRGB();
+      return new float[]{
+            (float)(c >> 16 & 255) / 255.0F,
+            (float)(c >> 8 & 255) / 255.0F,
+            (float)(c & 255) / 255.0F
+      };
    }
 }
