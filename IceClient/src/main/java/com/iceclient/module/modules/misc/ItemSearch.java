@@ -8,6 +8,8 @@ import com.iceclient.setting.KeybindSetting;
 import com.iceclient.util.ColorUtil;
 import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.inventory.GuiContainer;
+import net.minecraft.client.renderer.GlStateManager;
+import net.minecraft.client.renderer.RenderHelper;
 import net.minecraft.inventory.Slot;
 import net.minecraft.item.ItemStack;
 import net.minecraftforge.client.event.GuiScreenEvent;
@@ -147,10 +149,24 @@ public class ItemSearch extends Module {
       // Slot coords are container-relative, so we need guiLeft/guiTop -- both
       // protected on GuiContainer. ReflectionHelper takes the SRG name too, so
       // this resolves in the obfuscated runtime as well as in dev.
-      int left = this.intField(gui, "guiLeft", "field_147003_i");
-      int top = this.intField(gui, "guiTop", "field_147009_r");
+      int left = this.intField(gui, "guiLeft", "field_147003_i", 176, gui.width);
+      int top = this.intField(gui, "guiTop", "field_147009_r", 166, gui.height);
 
       int dim = ColorUtil.withAlpha(0, 140);
+
+      // GuiContainer draws item icons at z=200 with GUI item lighting still
+      // enabled. A plain drawRect lands at z=0, behind the icons and behind the
+      // slot background -- which is why the highlight was invisible even though
+      // the match was correct. Lift above the icons and drop depth/lighting for
+      // the duration.
+      GlStateManager.pushMatrix();
+      GlStateManager.translate(0.0F, 0.0F, 300.0F);
+      GlStateManager.disableDepth();
+      GlStateManager.disableLighting();
+      RenderHelper.disableStandardItemLighting();
+      GlStateManager.enableBlend();
+
+      int hits = 0;
       for(Slot slot : gui.inventorySlots.inventorySlots) {
          ItemStack stack = slot.getStack();
          if(stack == null) {
@@ -160,13 +176,22 @@ public class ItemSearch extends Module {
          int x = left + slot.xDisplayPosition;
          int y = top + slot.yDisplayPosition;
          if(this.matches(stack)) {
+            ++hits;
             Gui.drawRect(x, y, x + 16, y + 16, col);
          } else if(this.dimNonMatching.get()) {
             Gui.drawRect(x, y, x + 16, y + 16, dim);
          }
       }
 
+      GlStateManager.disableBlend();
+      GlStateManager.enableDepth();
+      GlStateManager.popMatrix();
+
+      this.lastHits = hits;
    }
+
+   /** Match count from the last draw, shown in the box. */
+   private int lastHits;
 
    /** Small search field drawn above the container. */
    private void drawSearchBox(GuiContainer gui) {
@@ -176,9 +201,14 @@ public class ItemSearch extends Module {
       } else if(!query.isEmpty()) {
          label = "Search: " + query;
       } else {
-         label = this.focusKey.getKeyCode() == 0
-               ? "Click to search"
-               : "Click to search [" + this.focusKey.getKeyName() + "]";
+         label = "Click to search";
+      }
+
+      // Match count, so it is obvious whether a search found nothing or the
+      // highlight simply is not showing -- two very different problems that
+      // otherwise look identical.
+      if(!query.isEmpty()) {
+         label = label + "   " + this.lastHits + (this.lastHits == 1 ? " match" : " matches");
       }
 
       int w = Math.max(110, this.mc.fontRendererObj.getStringWidth(label) + 10);
@@ -236,12 +266,20 @@ public class ItemSearch extends Module {
 
    }
 
-   private int intField(GuiContainer gui, String mcpName, String srgName) {
+   /**
+    * Reads a protected {@link GuiContainer} offset.
+    *
+    * <p>Falls back to the centred position for a default-sized container rather
+    * than to 0: a failure at 0 would draw every highlight in the screen corner,
+    * which looks like the feature is broken in a completely different way to
+    * how it actually failed.
+    */
+   private int intField(GuiContainer gui, String mcpName, String srgName, int defaultSize, int screenSize) {
       try {
          return ((Integer)net.minecraftforge.fml.relauncher.ReflectionHelper
                .getPrivateValue(GuiContainer.class, gui, new String[]{mcpName, srgName})).intValue();
       } catch (Throwable var5) {
-         return 0;
+         return (screenSize - defaultSize) / 2;
       }
    }
 

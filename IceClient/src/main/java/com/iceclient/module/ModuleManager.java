@@ -171,7 +171,7 @@ public class ModuleManager {
       tag(register(new ItemLock()), ModuleCategory.MECHANIC, (String)null);
       tag(register(new ImprovedHitBoxes()), ModuleCategory.ADMIN, (String)null);
       tag(register(new PlayerRadar()), ModuleCategory.ADMIN, (String)null);
-      tag(register(new Trails()), ModuleCategory.MECHANIC, (String)null);
+      tag(register(new Trails()), ModuleCategory.ADMIN, (String)null);
       tag(register(new ClearWater()), ModuleCategory.MECHANIC, (String)null);
       tag(register(new FpsParticles()), ModuleCategory.MECHANIC, (String)null);
       tag(register(new SprintDisplay()), ModuleCategory.MECHANIC, "Movement");
