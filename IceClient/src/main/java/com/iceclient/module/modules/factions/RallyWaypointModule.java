@@ -66,6 +66,7 @@ public class RallyWaypointModule extends Module {
    // and any terrain in front hid it -- underground or inside a base it was
    // invisible at every range. The ring already draws through walls; this makes
    // the beam match.
+   private final ModeSetting beamShape = (ModeSetting)this.addSetting(new ModeSetting("Beam shape", "Square", new String[]{"Square", "Round"}));
    private final BooleanSetting beamThroughWalls = (BooleanSetting)this.addSetting(new BooleanSetting("Beam through walls", true));
    private final NumberSetting beamWidth = (NumberSetting)this.addSetting(new NumberSetting("Beam width", 0.35D, 0.1D, 2.0D, 0.05D));
    private final NumberSetting beamAlpha = (NumberSetting)this.addSetting(new NumberSetting("Beam alpha", 0.45D, 0.05D, 1.0D, 0.05D));
@@ -177,8 +178,19 @@ public class RallyWaypointModule extends Module {
             // Shared with Waypoints so both markers look the same and gain new
             // options together.
             int beamCol = this.argbOf(rgb, (int)(this.beamAlpha.get() * 255.0D));
-            WorldRenderUtil.beam((double)this.rx + 0.5D, (double)this.ry + this.beamOffsetY.get(), (double)this.rz + 0.5D,
-                  this.beamHeight.get(), this.beamWidth.get(), beamCol, this.beamThroughWalls.get());
+            double bx = (double)this.rx + 0.5D;
+            double by = (double)this.ry + this.beamOffsetY.get();
+            double bz = (double)this.rz + 0.5D;
+
+            if(this.beamShape.is("Round")) {
+               // Radius, not width: half of the square beam's width, so the two
+               // shapes look the same size at the same setting.
+               WorldRenderUtil.beamCylinder(bx, by, bz, this.beamHeight.get(),
+                     this.beamWidth.get() / 2.0D, beamCol, this.beamThroughWalls.get(), 24);
+            } else {
+               WorldRenderUtil.beam(bx, by, bz, this.beamHeight.get(), this.beamWidth.get(),
+                     beamCol, this.beamThroughWalls.get());
+            }
          }
 
          // Ground marker. These helpers apply the camera offset themselves, so

@@ -316,6 +316,55 @@ public final class WorldRenderUtil {
     * under a rally point.
     */
    /**
+    * A vertical beam with a round cross-section.
+    *
+    * <p>{@link #beam} draws four flat walls, which reads as a square column and
+    * visibly changes width as you orbit it. This builds a cylinder instead, so
+    * it looks the same from every angle.
+    *
+    * <p>Culling is disabled rather than the sides being wound carefully: you can
+    * stand inside a wide beam, and a back-face-culled cylinder disappears the
+    * moment you do.
+    */
+   public static void beamCylinder(double x, double y, double z, double height, double radius,
+                                   int color, boolean throughWalls, int segments) {
+      GlStateManager.pushMatrix();
+      GlStateManager.translate(x - camX(), y - camY(), z - camZ());
+      GlStateManager.disableTexture2D();
+      GlStateManager.enableBlend();
+      GlStateManager.blendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+      GlStateManager.disableCull();
+      GlStateManager.depthMask(false);
+      if(throughWalls) {
+         GlStateManager.disableDepth();
+      }
+
+      applyColor(color);
+
+      GL11.glBegin(GL11.GL_QUAD_STRIP);
+      for(int i = 0; i <= segments; ++i) {
+         double a = 2.0D * Math.PI * (double)i / (double)segments;
+         double px = Math.cos(a) * radius;
+         double pz = Math.sin(a) * radius;
+         GL11.glVertex3d(px, 0.0D, pz);
+         GL11.glVertex3d(px, height, pz);
+      }
+
+      GL11.glEnd();
+
+      if(throughWalls) {
+         GlStateManager.enableDepth();
+      }
+
+      GlStateManager.depthMask(true);
+      GlStateManager.enableCull();
+      GlStateManager.disableBlend();
+      GlStateManager.enableTexture2D();
+      GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+      GlStateManager.popMatrix();
+   }
+
+   /**
     * A flat square outline, axis-aligned with the block grid.
     *
     * <p>Not {@code horizontalCircle} with four segments: that starts at angle 0
