@@ -976,6 +976,56 @@ public class ClickGuiScreen extends GuiScreen {
          return;
       }
 
+      // Typing a schematic position coordinate.
+      if(this.editingAxis >= 0) {
+         if(keyCode == 28 || keyCode == 156) {
+            this.commitAxis();
+         } else if(keyCode == 1) {
+            this.editingAxis = -1;
+            this.axisInput = "";
+         } else if(keyCode == 14) {
+            if(!this.axisInput.isEmpty()) {
+               this.axisInput = this.axisInput.substring(0, this.axisInput.length() - 1);
+            }
+         } else if(this.axisInput.length() < 8
+               && (Character.isDigit(typedChar) || (typedChar == '-' && this.axisInput.isEmpty()))) {
+            this.axisInput = this.axisInput + typedChar;
+         }
+
+         return;
+      }
+
+      // Typing a macro cooldown. Before the macro-command route, since both are
+      // live on the same page and this one is the narrower target.
+      if(this.editingCooldown != null) {
+         if(keyCode == 28 || keyCode == 156) {
+            double parsed = parseDuration(this.cooldownInput);
+            if(this.cooldownInput.trim().isEmpty()) {
+               // Empty means "no cooldown", which is a normal thing to want and
+               // should not read as a parse failure.
+               this.editingCooldown.setCooldownSeconds(0.0D);
+            } else if(parsed >= 0.0D) {
+               this.editingCooldown.setCooldownSeconds(parsed);
+            }
+
+            this.editingCooldown = null;
+            this.cooldownInput = "";
+         } else if(keyCode == 1) {
+            this.editingCooldown = null;
+            this.cooldownInput = "";
+         } else if(keyCode == 14) {
+            if(!this.cooldownInput.isEmpty()) {
+               this.cooldownInput = this.cooldownInput.substring(0, this.cooldownInput.length() - 1);
+            }
+         } else if(this.cooldownInput.length() < 10
+               && (Character.isDigit(typedChar) || typedChar == '.'
+                     || typedChar == 'm' || typedChar == 's')) {
+            this.cooldownInput = this.cooldownInput + typedChar;
+         }
+
+         return;
+      }
+
       // Naming a selection on the Points tab. Checked before the macro routes
       // so a schematic name containing letters cannot fall through to them.
       if(this.editingSaveName) {
@@ -1084,6 +1134,10 @@ public class ClickGuiScreen extends GuiScreen {
    /** Name the Points page will save under; edited in place. */
    private String saveName = "selection";
    private boolean editingSaveName;
+
+   /** Which position axis is being typed on the Browser tab: -1, or 0/1/2. */
+   private int editingAxis = -1;
+   private String axisInput = "";
 
    private void layoutSchematicTabs() {
       this.schemTabY = this.contentY + 18;
@@ -1380,8 +1434,19 @@ public class ClickGuiScreen extends GuiScreen {
          String[] axes = new String[]{"X", "Y", "Z"};
 
          for(int i = 0; i < 3; ++i) {
-            String v = pos == null?"-":String.valueOf(pos[i]);
-            this.fontRendererObj.drawStringWithShadow(axes[i] + " " + v, (float)colX, (float)(by + i * rowGap + 3), has?-1379073:-8088413);
+            boolean editing = this.editingAxis == i;
+            String v = editing
+                  ? this.axisInput + "_"
+                  : (pos == null ? "-" : String.valueOf(pos[i]));
+
+            if(editing) {
+               this.roundRect(colX - 2, by + i * rowGap, colX + 62, by + i * rowGap + 14, 3.0F, -14141369);
+            }
+
+            // Click the value to type a coordinate outright -- nudging from
+            // 4837 to a number across the map with +/- is not realistic.
+            this.fontRendererObj.drawStringWithShadow(axes[i] + " " + v, (float)colX,
+                  (float)(by + i * rowGap + 3), editing ? -10696961 : (has ? -1379073 : -8088413));
          }
 
          this.drawButtons(mouseX, mouseY);
@@ -1428,6 +1493,24 @@ public class ClickGuiScreen extends GuiScreen {
             if(b.hit(mouseX, mouseY)) {
                this.schematicAction(b.id);
                return;
+            }
+         }
+
+         // Position values on the Browser tab are click-to-type.
+         if(this.schemTab == 0 && SchematicaBridge.isAvailable() && SchematicaBridge.hasSchematic()) {
+            int colX = this.schemListX + this.schemListW + 8;
+            int by = this.schemListY + 12;
+
+            if(mouseX >= colX - 2 && mouseX <= colX + 62) {
+               for(int i = 0; i < 3; ++i) {
+                  int rowTop = by + i * 20;
+                  if(mouseY >= rowTop && mouseY <= rowTop + 14) {
+                     int[] p = SchematicaBridge.position();
+                     this.editingAxis = i;
+                     this.axisInput = p == null ? "" : String.valueOf(p[i]);
+                     return;
+                  }
+               }
             }
          }
 
@@ -1561,6 +1644,38 @@ public class ClickGuiScreen extends GuiScreen {
          break;
       case 29:
          this.saveSelection();
+      }
+
+   }
+
+   /**
+    * Applies the typed coordinate to the loaded schematic.
+    *
+    * <p>Expressed as a delta because {@code nudge} is relative -- there is no
+    * absolute setter on the bridge, and re-deriving the delta here keeps that
+    * detail out of the input handling.
+    */
+   private void commitAxis() {
+      int axis = this.editingAxis;
+      String text = this.axisInput;
+      this.editingAxis = -1;
+      this.axisInput = "";
+
+      int[] cur = SchematicaBridge.position();
+      if(cur == null || axis < 0 || text.isEmpty() || "-".equals(text)) {
+         return;
+      }
+
+      try {
+         int target = Integer.parseInt(text);
+         int dx = axis == 0 ? target - cur[0] : 0;
+         int dy = axis == 1 ? target - cur[1] : 0;
+         int dz = axis == 2 ? target - cur[2] : 0;
+         SchematicaBridge.nudge(dx, dy, dz);
+         this.schemStatus = "Moved to " + (axis == 0 ? target : cur[0]) + ", "
+               + (axis == 1 ? target : cur[1]) + ", " + (axis == 2 ? target : cur[2]);
+      } catch (NumberFormatException e) {
+         this.schemStatus = "Not a number.";
       }
 
    }
@@ -1800,6 +1915,68 @@ public class ClickGuiScreen extends GuiScreen {
    private String macroInput = "";
    private boolean macroInputFocused;
    private com.iceclient.macro.Macro bindingMacro;
+
+   /** The macro whose cooldown is being typed, and the raw text so far. */
+   private com.iceclient.macro.Macro editingCooldown;
+   private String cooldownInput = "";
+
+   /**
+    * Parses a duration with an optional unit suffix into seconds.
+    *
+    * <p>Accepts {@code 250ms}, {@code 10s}, {@code 2m} and a bare number, which
+    * is read as seconds. Milliseconds matter here because macro cooldowns are
+    * used to stay under server rate limits, and those are often tighter than a
+    * whole second -- the old right-click cycle could only reach 5/10/20/30s.
+    *
+    * @return seconds, or -1 when the text does not parse
+    */
+   private static double parseDuration(String text) {
+      if(text == null) {
+         return -1.0D;
+      }
+
+      String s = text.trim().toLowerCase();
+      if(s.isEmpty()) {
+         return -1.0D;
+      }
+
+      double mult = 1.0D;
+      if(s.endsWith("ms")) {
+         mult = 0.001D;
+         s = s.substring(0, s.length() - 2);
+      } else if(s.endsWith("s")) {
+         s = s.substring(0, s.length() - 1);
+      } else if(s.endsWith("m")) {
+         mult = 60.0D;
+         s = s.substring(0, s.length() - 1);
+      }
+
+      try {
+         double v = Double.parseDouble(s.trim());
+         return v < 0.0D ? -1.0D : v * mult;
+      } catch (NumberFormatException e) {
+         return -1.0D;
+      }
+   }
+
+   /** Formats seconds back into the shortest sensible unit for display. */
+   private static String formatDuration(double seconds) {
+      if(seconds <= 0.0D) {
+         return "-";
+      }
+
+      if(seconds < 1.0D) {
+         return Math.round(seconds * 1000.0D) + "ms";
+      }
+
+      if(seconds >= 60.0D && seconds % 60.0D == 0.0D) {
+         return (int)(seconds / 60.0D) + "m";
+      }
+
+      return seconds % 1.0D == 0.0D
+            ? (int)seconds + "s"
+            : String.format("%.2fs", Double.valueOf(seconds));
+   }
    private int pageScroll;
 
    /** Toggle pill matching the rest of the GUI: 20x10, knob slides on state. */
@@ -1856,8 +2033,17 @@ public class ClickGuiScreen extends GuiScreen {
          this.fontRendererObj.drawString(text, x + 6, y + 4, m.isEnabled() ? -1379073 : -11642264);
 
          // Cooldown readout, so a macro that's waiting is visible at a glance.
-         String cd = m.getCooldownSeconds() > 0.0D ? (int)m.getCooldownSeconds() + "s" : "-";
-         this.fontRendererObj.drawString(cd, x + w - 128, y + 4, -8088413);
+         // Click it to type an exact value with a unit.
+         boolean editingCd = this.editingCooldown == m;
+         String cd = editingCd
+               ? this.cooldownInput + "_"
+               : formatDuration(m.getCooldownSeconds());
+
+         if(editingCd) {
+            this.roundRect(x + w - 132, y + 1, x + w - 100, y + PAGE_ROW_H - 4, 3.0F, -14141369);
+         }
+
+         this.fontRendererObj.drawString(cd, x + w - 128, y + 4, editingCd ? -10696961 : -8088413);
 
          // Key box
          boolean binding = this.bindingMacro == m;
@@ -1956,8 +2142,16 @@ public class ClickGuiScreen extends GuiScreen {
                m.setEnabled(!m.isEnabled());
             } else if(mouseX >= x + w - 18) {
                com.iceclient.module.modules.misc.Macros.remove(m);
+            } else if(mouseX >= x + w - 132 && mouseX <= x + w - 100) {
+               // Click the cooldown to type an exact value; the old right-click
+               // cycle could only reach 5/10/20/30s.
+               this.editingCooldown = m;
+               this.cooldownInput = m.getCooldownSeconds() > 0.0D
+                     ? formatDuration(m.getCooldownSeconds())
+                     : "";
+               this.macroInputFocused = false;
             } else if(button == 1) {
-               // Right-click cycles the cooldown: off -> 5 -> 10 -> 20 -> 30 -> off
+               // Right-click still cycles, as the quick path.
                double cd = m.getCooldownSeconds();
                m.setCooldownSeconds(cd <= 0.0D ? 5.0D : (cd < 10.0D ? 10.0D : (cd < 20.0D ? 20.0D : (cd < 30.0D ? 30.0D : 0.0D))));
             }

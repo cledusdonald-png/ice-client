@@ -119,6 +119,23 @@ public final class SchematicaBridge {
       return s != null && s.isRendering;
    }
 
+   /**
+    * Whether any schematic overlay should draw at all.
+    *
+    * <p>Every module that draws something schematic-shaped must gate on this,
+    * not on its own enabled flag alone. "Render: OFF" is one switch to the
+    * user, but the drawing is spread across Schematica's own renderer, Ice's
+    * preview, and both missing-block ESPs. A module that skips this check
+    * leaves wireframes on screen while the toggle reads OFF -- which reads as
+    * the toggle being broken, not as that module being on.
+    *
+    * <p>Returns true when Schematica is absent, so the standalone renderers
+    * still work without it installed.
+    */
+   public static boolean shouldRenderOverlays() {
+      return !isAvailable() || isRendering();
+   }
+
    public static void setRendering(boolean on) {
       SchematicWorld s = ClientProxy.schematic;
       if(s != null) {

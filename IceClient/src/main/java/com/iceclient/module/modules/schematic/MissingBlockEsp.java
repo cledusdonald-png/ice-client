@@ -94,6 +94,10 @@ public class MissingBlockEsp extends Module {
 
    @SubscribeEvent
    public void onRender(RenderWorldLastEvent event) {
+      if(!com.iceclient.schematica.SchematicaBridge.shouldRenderOverlays()) {
+         return;
+      }
+
       if(this.isEnabled() && this.armed && !this.missing.isEmpty()) {
          int col = this.espColor.getRGB();
          GlStateManager.disableTexture2D();

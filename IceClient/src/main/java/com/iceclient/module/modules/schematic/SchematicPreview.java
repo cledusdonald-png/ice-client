@@ -44,8 +44,7 @@ public class SchematicPreview extends Module {
       // independently of Schematica's renderer, so honouring only Schematica's
       // flag left this wireframe on screen with the toggle reading OFF -- the
       // toggle looked broken because it was only turning off half the drawing.
-      if(com.iceclient.schematica.SchematicaBridge.isAvailable()
-            && !com.iceclient.schematica.SchematicaBridge.isRendering()) {
+      if(!com.iceclient.schematica.SchematicaBridge.shouldRenderOverlays()) {
          return;
       }
 

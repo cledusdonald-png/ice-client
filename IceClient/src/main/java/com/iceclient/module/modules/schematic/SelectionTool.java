@@ -9,6 +9,7 @@ import com.iceclient.setting.BooleanSetting;
 import com.iceclient.setting.ColorSetting;
 import com.iceclient.setting.KeybindSetting;
 import com.iceclient.util.BindUtil;
+import com.iceclient.util.ColorUtil;
 import com.iceclient.util.WorldRenderUtil;
 import net.minecraft.util.AxisAlignedBB;
 import net.minecraft.util.BlockPos;
@@ -35,7 +36,10 @@ public class SelectionTool extends Module {
    private final KeybindSetting clearKey = this.addKeybind("Clear selection", 0);
    private final BooleanSetting showBox = this.addBool("Draw region box", true);
    private final BooleanSetting showCorners = this.addBool("Draw corner markers", true);
-   private final ColorSetting boxColor = this.addColor("Box colour", 0xFF8C5AFF);
+   private final BooleanSetting fillCorners = this.addBool("Solid corner blocks", true);
+   private final ColorSetting colorA = this.addColor("Point A colour", 0xFFFF3333);
+   private final ColorSetting colorB = this.addColor("Point B colour", 0xFF3388FF);
+   private final ColorSetting boxColor = this.addColor("Region colour", 0xFF8C5AFF);
    private final BooleanSetting throughWalls = this.addBool("Through walls", true);
 
    private boolean aWasDown;
@@ -126,8 +130,11 @@ public class SelectionTool extends Module {
       boolean through = this.throughWalls.get();
 
       if(this.showCorners.get()) {
-         this.drawCorner(Selection.getA(), color, through);
-         this.drawCorner(Selection.getB(), color, through);
+         // A and B get their own colours so you can tell at a glance which
+         // corner you are about to move -- with one colour they are
+         // indistinguishable, and the region grows the wrong way if you guess.
+         this.drawCorner(Selection.getA(), this.colorA.getRGB(), through);
+         this.drawCorner(Selection.getB(), this.colorB.getRGB(), through);
       }
 
       if(this.showBox.get() && Selection.isComplete()) {
@@ -149,9 +156,19 @@ public class SelectionTool extends Module {
          return;
       }
 
-      WorldRenderUtil.outlineBox(new AxisAlignedBB(
-            (double)pos.getX(), (double)pos.getY(), (double)pos.getZ(),
-            (double)(pos.getX() + 1), (double)(pos.getY() + 1), (double)(pos.getZ() + 1)),
-            color, 2.5F, through);
+      // Inset very slightly so the corner marker does not z-fight with the
+      // region outline, which shares its edges when the region is one block.
+      AxisAlignedBB box = new AxisAlignedBB(
+            (double)pos.getX() + 0.002D, (double)pos.getY() + 0.002D, (double)pos.getZ() + 0.002D,
+            (double)(pos.getX() + 1) - 0.002D, (double)(pos.getY() + 1) - 0.002D,
+            (double)(pos.getZ() + 1) - 0.002D);
+
+      if(this.fillCorners.get()) {
+         // A translucent fill reads as a coloured block at distance, where a
+         // wireframe cube collapses into a dot.
+         WorldRenderUtil.filledBox(box, ColorUtil.withAlpha(color, 110));
+      }
+
+      WorldRenderUtil.outlineBox(box, color, 2.5F, through);
    }
 }

@@ -22,6 +22,12 @@ public class MissingBlockEspModule extends Module {
 
    @SubscribeEvent
    public void onRenderWorld(RenderWorldLastEvent event) {
+      // "Render: OFF" must silence this too -- it draws a box per missing
+      // block, so an unbuilt schematic is a solid grid of wireframe cubes.
+      if(!SchematicaBridge.shouldRenderOverlays()) {
+         return;
+      }
+
       if(this.isEnabled() && this.mc.thePlayer != null) {
          double camX = this.mc.getRenderManager().viewerPosX;
          double camY = this.mc.getRenderManager().viewerPosY;

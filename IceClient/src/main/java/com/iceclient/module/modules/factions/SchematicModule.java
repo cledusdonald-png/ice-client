@@ -489,6 +489,10 @@ public class SchematicModule extends Module {
 
    @SubscribeEvent
    public void onRenderWorld(RenderWorldLastEvent event) {
+      if(!SchematicaBridge.shouldRenderOverlays()) {
+         return;
+      }
+
       if(this.isEnabled() && this.mc.thePlayer != null) {
          if(!SchematicaBridge.isAvailable()) {
             SchematicModule.Loaded l = this.active();
