@@ -30,6 +30,30 @@ public class ItemSearch extends Module {
 
    private final KeybindSetting focusKey = (KeybindSetting)this.addSetting(new KeybindSetting("Focus search key", Keyboard.KEY_F));
    private final BooleanSetting searchLore = (BooleanSetting)this.addSetting(new BooleanSetting("Search lores and tool tips", true));
+   /**
+    * Registry name, e.g. {@code minecraft:diamond_sword}. Lets you find every
+    * item of a type regardless of what a plugin renamed it to -- searching
+    * "obsidian" still finds a stack called "§5Cursed Block".
+    */
+   private final BooleanSetting searchItemId = (BooleanSetting)this.addSetting(new BooleanSetting("Search item ID", true));
+   /**
+    * Raw NBT. This is the catch-all: custom plugin tags, enchantments the item
+    * hides with HideFlags, owner data on heads, ability keys on relics -- none
+    * of which appear in the rendered tooltip.
+    */
+   private final BooleanSetting searchNbt = (BooleanSetting)this.addSetting(new BooleanSetting("Search raw NBT", false));
+   /**
+    * Server lore is full of colour codes, and they land mid-word: "§cRed §fSword"
+    * does not contain "red sword". Stripping them before matching is what makes
+    * searching decorated item names work at all.
+    */
+   private final BooleanSetting ignoreColors = (BooleanSetting)this.addSetting(new BooleanSetting("Ignore colour codes", true));
+   /**
+    * Splits the query on spaces and requires every term to match somewhere on
+    * the item, so "prot 4 boots" finds Protection IV boots without depending on
+    * the order those words appear in the tooltip.
+    */
+   private final BooleanSetting allTerms = (BooleanSetting)this.addSetting(new BooleanSetting("Match all words", true));
    private final BooleanSetting dimNonMatching = (BooleanSetting)this.addSetting(new BooleanSetting("Dim non-matching", false));
    private final BooleanSetting chroma = (BooleanSetting)this.addSetting(new BooleanSetting("Chroma", false));
    private final ColorSetting slotColor = (ColorSetting)this.addSetting(new ColorSetting("Slot color", -1));
@@ -44,7 +68,7 @@ public class ItemSearch extends Module {
    private int boxH;
 
    public ItemSearch() {
-      super("Item Search", "Highlights items in an inventory based on their name", ModuleCategory.MECHANIC);
+      super("Item Search", "Highlights items by name, lore, enchantments, ID or NBT", ModuleCategory.MECHANIC);
    }
 
    public static void setQuery(String q) {
@@ -223,22 +247,70 @@ public class ItemSearch extends Module {
 
    private boolean matches(ItemStack stack) {
       try {
-         if(stack.getDisplayName().toLowerCase().contains(query)) {
-            return true;
+         if(query.isEmpty()) {
+            return false;
          }
 
-         if(this.searchLore.get()) {
-            List<String> tip = stack.getTooltip(this.mc.thePlayer, false);
-            for(String line : tip) {
-               if(line != null && line.toLowerCase().contains(query)) {
-                  return true;
-               }
+         // Built once per item, not once per term: with "match all words" on,
+         // testing terms separately would re-run getTooltip (and the NBT dump)
+         // for every word, on every slot, every frame.
+         String haystack = this.searchableText(stack);
+
+         if(!this.allTerms.get()) {
+            return haystack.contains(query);
+         }
+
+         // Every word must match somewhere on the item, though not necessarily
+         // in the same field -- "prot 4 boots" can take "boots" from the name
+         // and "prot"/"4" from an enchantment line.
+         for(String term : query.split("\\s+")) {
+            if(!term.isEmpty() && !haystack.contains(term)) {
+               return false;
             }
          }
+
+         return true;
       } catch (Throwable var4) {
          // A malformed stack from a server plugin shouldn't break rendering.
+         return false;
+      }
+   }
+
+   /**
+    * Everything about an item that can be searched, as one lowercase blob.
+    *
+    * <p>The raw NBT dump is the expensive part -- it serialises the whole tag
+    * tree -- which is why it is off by default and appended last.
+    */
+   private String searchableText(ItemStack stack) {
+      StringBuilder sb = new StringBuilder(128);
+      sb.append(stack.getDisplayName()).append('\n');
+
+      if(this.searchItemId.get() && stack.getItem() != null) {
+         Object id = net.minecraft.item.Item.itemRegistry.getNameForObject(stack.getItem());
+         if(id != null) {
+            sb.append(id.toString()).append('\n');
+         }
       }
 
-      return false;
+      if(this.searchLore.get()) {
+         List<String> tip = stack.getTooltip(this.mc.thePlayer, false);
+         for(String line : tip) {
+            if(line != null) {
+               sb.append(line).append('\n');
+            }
+         }
+      }
+
+      if(this.searchNbt.get() && stack.hasTagCompound()) {
+         sb.append(stack.getTagCompound().toString());
+      }
+
+      String text = sb.toString();
+      if(this.ignoreColors.get()) {
+         text = net.minecraft.util.EnumChatFormatting.getTextWithoutFormattingCodes(text);
+      }
+
+      return text == null ? "" : text.toLowerCase();
    }
 }
