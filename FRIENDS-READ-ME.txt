@@ -1,0 +1,39 @@
+================================
+  ICE CLIENT  -  Beta test
+================================
+
+You need two things first:
+
+1) A Minecraft: Java Edition account (Microsoft login).
+
+2) Java 8 installed (Minecraft 1.8.9 needs it). Get it free here:
+      https://adoptium.net/temurin/releases/?version=8
+   - Operating System: Windows,  Architecture: x64,  Package Type: JRE
+   - Download the ".msi" installer and install it with the default options.
+
+
+HOW TO RUN
+----------
+1) Extract this ENTIRE folder somewhere (like your Desktop).
+   Don't run it from inside the .zip -- actually extract it first.
+
+2) Double-click  run.bat
+   - If Windows shows "Windows protected your PC", click
+     "More info"  ->  "Run anyway".  (It's safe, it's just not signed.)
+
+3) In the launcher, click "Sign in with Microsoft" and log in.
+   (Your password only goes into Microsoft's own window -- the launcher never sees it.)
+
+4) Click PLAY.
+   - The FIRST launch downloads Minecraft 1.8.9 (a few minutes). After that it's fast.
+   - Minecraft opens on the Ice Client menu. In-game, press RIGHT SHIFT for the mod menu.
+
+
+GOOD TO KNOW
+------------
+- This client has extended reach + fast schematic printing. Only use it on servers
+  that allow that (like Minecadia). Using it where it's against the rules can get you
+  banned -- that's on you.
+
+- Hit a bug or crash? Tell Evan, and if you can, grab the log file:
+  press Win+R, paste   %AppData%\ice-launcher\launcher.log   and send it over.

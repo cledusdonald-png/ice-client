@@ -1,0 +1,46 @@
+{
+  "name": "ice-launcher",
+  "version": "0.1.0",
+  "description": "Ice Client Launcher",
+  "main": "main.js",
+  "author": "Ice Client",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "dependencies": {
+    "msmc": "^4.1.0",
+    "minecraft-launcher-core": "^3.18.2"
+  },
+  "devDependencies": {
+    "electron": "^32.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.iceclient.launcher",
+    "productName": "Ice Client",
+    "files": [
+      "**/*",
+      "!game/**/*",
+      "!dist/**/*",
+      "!FRIENDS-READ-ME.txt",
+      "!start.bat",
+      "!run.bat"
+    ],
+    "extraResources": [
+      { "from": "game", "to": "game" }
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "shortcutName": "Ice Client"
+    }
+  }
+}

@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ice Client</title>
+<style>
+  :root {
+    --ground: #05080e;
+    --panel: rgba(148, 197, 232, 0.05);
+    --panel-line: rgba(150, 200, 255, 0.12);
+    --ice: #6fd6ff;
+    --ice-bright: #a9e9ff;
+    --ice-deep: #2f7fa6;
+    --frost: #eaf4ff;
+    --steel: #8497a8;
+    --steel-dim: #5b6b7b;
+    --good: #57e0a0;
+    --display: "Bahnschrift", "DIN Condensed", "Oswald", system-ui, sans-serif;
+    --body: "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: var(--body);
+    color: var(--frost);
+    background:
+      radial-gradient(1200px 700px at 15% -10%, rgba(56, 138, 184, 0.22), transparent 60%),
+      radial-gradient(900px 600px at 100% 110%, rgba(38, 92, 130, 0.20), transparent 55%),
+      var(--ground);
+    overflow: hidden;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .aura {
+    position: fixed; inset: -20%; z-index: 0; pointer-events: none;
+    background:
+      radial-gradient(600px 400px at 30% 40%, rgba(111, 214, 255, 0.10), transparent 60%),
+      radial-gradient(520px 520px at 72% 62%, rgba(47, 127, 166, 0.12), transparent 60%);
+    filter: blur(8px);
+    animation: drift 22s ease-in-out infinite alternate;
+  }
+  @keyframes drift {
+    from { transform: translate3d(-2%, -1%, 0) scale(1); }
+    to   { transform: translate3d(3%, 2%, 0) scale(1.08); }
+  }
+
+  .app { position: relative; z-index: 1; height: 100vh; display: flex; flex-direction: column; }
+
+  .titlebar {
+    height: 40px; flex: none;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 8px 0 16px;
+    border-bottom: 1px solid var(--panel-line);
+    -webkit-app-region: drag;
+  }
+  .tb-title { font-family: var(--display); font-size: 12px; letter-spacing: 0.28em; text-transform: uppercase; color: var(--steel); }
+  .tb-buttons { display: flex; -webkit-app-region: no-drag; }
+  .tb-btn {
+    width: 40px; height: 32px; border: none; background: none; color: var(--steel);
+    font-size: 15px; cursor: pointer; border-radius: 8px; transition: background 0.15s, color 0.15s;
+  }
+  .tb-btn:hover { background: rgba(255,255,255,0.06); color: var(--frost); }
+  .tb-btn.close:hover { background: rgba(255, 90, 90, 0.22); color: #ffd9d9; }
+
+  .shell { flex: 1; display: flex; min-height: 0; }
+
+  .side {
+    width: 76px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 6px;
+    padding: 18px 0; border-right: 1px solid var(--panel-line); background: rgba(6, 12, 20, 0.35);
+  }
+  .brandmark { width: 40px; height: 40px; margin-bottom: 14px; filter: drop-shadow(0 0 10px rgba(111, 214, 255, 0.45)); }
+  .nav { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 12px; color: var(--steel); cursor: pointer; transition: background 0.18s, color 0.18s; }
+  .nav svg { width: 20px; height: 20px; }
+  .nav:hover { color: var(--frost); background: rgba(255,255,255,0.05); }
+  .nav.active { color: var(--ice); background: rgba(111, 214, 255, 0.12); box-shadow: inset 2px 0 0 var(--ice); }
+  .side-foot { margin-top: auto; font-family: var(--display); font-size: 11px; letter-spacing: 0.12em; color: var(--steel-dim); }
+
+  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+  .topbar { height: 58px; flex: none; display: flex; align-items: center; justify-content: flex-end; padding: 0 20px; }
+  .account { display: flex; align-items: center; gap: 10px; padding: 6px 12px 6px 6px; border-radius: 999px; background: var(--panel); border: 1px solid var(--panel-line); cursor: pointer; transition: border-color 0.18s; }
+  .account:hover { border-color: rgba(111,214,255,0.35); }
+  .account.signin { padding: 8px 15px; gap: 9px; }
+  .account.signin svg { flex: none; border-radius: 2px; }
+  .account.signin .name { font-weight: 600; }
+  .avatar { width: 26px; height: 26px; border-radius: 7px; background: linear-gradient(150deg, #3a6f8c, #6fd6ff); display: grid; place-items: center; font-family: var(--display); font-weight: 700; font-size: 13px; color: #04121a; }
+  .account .name { font-size: 13px; font-weight: 600; }
+  .account .who { display: flex; flex-direction: column; line-height: 1.15; }
+  .account .plat { font-size: 10px; letter-spacing: 0.05em; color: var(--steel); }
+  .dot-good { width: 7px; height: 7px; border-radius: 50%; background: var(--good); box-shadow: 0 0 8px var(--good); }
+
+  .hero { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; padding: 8px 40px 20px; }
+  .wordmark { font-family: var(--display); font-weight: 600; font-size: clamp(44px, 8vw, 78px); line-height: 0.9; letter-spacing: 0.02em; text-transform: uppercase; margin: 0; text-wrap: balance; }
+  .wordmark .ice { color: transparent; background: linear-gradient(180deg, var(--ice-bright), var(--ice) 55%, var(--ice-deep)); -webkit-background-clip: text; background-clip: text; filter: drop-shadow(0 2px 18px rgba(111, 214, 255, 0.35)); }
+  .tagline { margin: 10px 0 0; font-size: 15px; letter-spacing: 0.02em; color: var(--steel); max-width: 40ch; }
+  .tagline b { color: var(--frost); font-weight: 600; }
+
+  .controls { margin-top: 30px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .play { position: relative; overflow: hidden; display: inline-flex; align-items: center; gap: 14px; padding: 0 40px 0 26px; height: 60px; border: none; border-radius: 14px; cursor: pointer; font-family: var(--display); font-weight: 700; font-size: 24px; letter-spacing: 0.12em; text-transform: uppercase; color: #04121a; background: linear-gradient(160deg, var(--ice-bright), var(--ice) 60%, #4fb6e6); box-shadow: 0 14px 40px -12px rgba(111, 214, 255, 0.6), 0 0 0 1px rgba(255,255,255,0.25) inset; transition: transform 0.16s ease, box-shadow 0.16s ease; }
+  .play:hover { transform: translateY(-2px); box-shadow: 0 20px 52px -12px rgba(111, 214, 255, 0.75), 0 0 0 1px rgba(255,255,255,0.35) inset; }
+  .play:active { transform: translateY(0); }
+  .play:focus-visible { outline: 3px solid var(--ice-bright); outline-offset: 3px; }
+  .play .tri { width: 0; height: 0; border-left: 20px solid #04121a; border-top: 12px solid transparent; border-bottom: 12px solid transparent; }
+  .play .sub { font-family: var(--body); font-weight: 600; font-size: 11px; letter-spacing: 0.08em; opacity: 0.7; text-transform: none; }
+  .play::after { content: ""; position: absolute; top: 0; left: -60%; width: 45%; height: 100%; background: linear-gradient(100deg, transparent, rgba(255,255,255,0.55), transparent); transform: skewX(-18deg); transition: left 0.5s ease; }
+  .play:hover::after { left: 130%; }
+
+  .ver { display: inline-flex; align-items: center; gap: 10px; height: 44px; padding: 0 16px; border-radius: 12px; background: var(--panel); border: 1px solid var(--panel-line); cursor: pointer; transition: border-color 0.18s; }
+  .ver:hover { border-color: rgba(111,214,255,0.35); }
+  .ver .vlabel { font-family: var(--display); font-weight: 600; letter-spacing: 0.06em; font-size: 15px; }
+  .ver .vsub { font-size: 11px; color: var(--steel); }
+  .ver .chev { color: var(--steel); }
+
+  .status { margin-top: 22px; display: flex; align-items: center; gap: 10px; font-size: 12px; letter-spacing: 0.04em; color: var(--steel); }
+  .status .rdot { width: 8px; height: 8px; border-radius: 50%; background: var(--ice); box-shadow: 0 0 10px var(--ice); }
+
+  .news { flex: none; margin: 0 20px 20px; padding: 16px 20px; border-radius: 14px; background: var(--panel); border: 1px solid var(--panel-line); }
+  .news h3 { margin: 0 0 12px; font-family: var(--display); font-weight: 600; font-size: 12px; letter-spacing: 0.24em; text-transform: uppercase; color: var(--ice); }
+  .changes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 26px; margin: 0; padding: 0; list-style: none; }
+  .changes li { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; color: var(--frost); }
+  .changes li span.sub2 { color: var(--steel); font-size: 12px; }
+  .tick { color: var(--ice); flex: none; margin-top: 1px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .aura { animation: none; }
+    .play::after { transition: none; }
+    .play:hover { transform: none; }
+  }
+  @media (max-width: 760px) { .changes { grid-template-columns: 1fr; } .changes .second { display: none; } }
+</style>
+</head>
+<body>
+<div class="aura"></div>
+
+<div class="app">
+  <div class="titlebar">
+    <span class="tb-title">Ice Client</span>
+    <div class="tb-buttons">
+      <button class="tb-btn" id="min" title="Minimize">&#8211;</button>
+      <button class="tb-btn close" id="close" title="Close">&#10005;</button>
+    </div>
+  </div>
+
+  <div class="shell">
+    <aside class="side">
+      <svg class="brandmark" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <defs>
+          <linearGradient id="ig" x1="24" y1="2" x2="24" y2="46" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#a9e9ff"/><stop offset="1" stop-color="#2f7fa6"/>
+          </linearGradient>
+        </defs>
+        <path d="M24 3 L39.6 12.5 V33.5 L24 43 L8.4 33.5 V12.5 Z" stroke="url(#ig)" stroke-width="2" fill="rgba(111,214,255,0.08)"/>
+        <path d="M24 3 V43 M8.4 12.5 L39.6 33.5 M39.6 12.5 L8.4 33.5" stroke="url(#ig)" stroke-width="1" opacity="0.55"/>
+      </svg>
+      <div class="nav active" title="Play"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></div>
+      <div class="nav" title="Cosmetics"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3 6 6 .5-4.5 4 1.5 6-6-3.2L6 18.5 7.5 12.5 3 8.5 9 8z"/></svg></div>
+      <div class="nav" title="Mods"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></div>
+      <div class="nav" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg></div>
+      <div class="side-foot">v0.1.0</div>
+    </aside>
+
+    <div class="main">
+      <div class="topbar">
+        <div class="account signin" id="account" title="Account"></div>
+      </div>
+
+      <div class="hero">
+        <h1 class="wordmark"><span class="ice">Ice</span> Client</h1>
+        <p class="tagline">Factions tooling built for the wall — <b>cannon-ready printing</b>, raid awareness, and a HUD you actually want on screen.</p>
+
+        <div class="controls">
+          <button class="play">
+            <span class="tri"></span>
+            <span>Play<br><span class="sub">1.8.9 &middot; Forge</span></span>
+          </button>
+          <div class="ver">
+            <div><div class="vlabel">1.8.9</div><div class="vsub">Forge &middot; Ice v0.1.0</div></div>
+            <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+          </div>
+        </div>
+
+        <div class="status"><span class="rdot"></span> Ready to launch &middot; Java 8 detected &middot; 4&nbsp;GB allocated</div>
+      </div>
+
+      <div class="news">
+        <h3>What's new &middot; v0.1.0</h3>
+        <ul class="changes">
+          <li><span class="tick">&#10022;</span><div>PatchCrumbs full 3D block <span class="sub2">+ 4-way guide cross</span></div></li>
+          <li><span class="tick">&#10022;</span><div>Batched TNT boxes <span class="sub2">no FPS drop on volleys</span></div></li>
+          <li class="second"><span class="tick">&#10022;</span><div>HUD editor <span class="sub2">resize &amp; recolor any element</span></div></li>
+          <li class="second"><span class="tick">&#10022;</span><div>Card-grid menu <span class="sub2">left-click toggle, right-click settings</span></div></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.getElementById('min').addEventListener('click', () => window.win.minimize());
+  document.getElementById('close').addEventListener('click', () => window.win.close());
+
+  const accountEl = document.getElementById('account');
+  const MS = '<svg width="15" height="15" viewBox="0 0 23 23" aria-hidden="true">'
+    + '<rect width="10" height="10" x="1" y="1" fill="#f25022"/>'
+    + '<rect width="10" height="10" x="12" y="1" fill="#7fba00"/>'
+    + '<rect width="10" height="10" x="1" y="12" fill="#00a4ef"/>'
+    + '<rect width="10" height="10" x="12" y="12" fill="#ffb900"/></svg>';
+
+  function signedOut(label) {
+    accountEl.classList.add('signin');
+    accountEl.innerHTML = MS + '<span class="name">' + (label || 'Sign in with Microsoft') + '</span>';
+    accountEl.onclick = doLogin;
+  }
+  function busy(text) {
+    accountEl.classList.add('signin');
+    accountEl.innerHTML = '<span class="name">' + text + '</span>';
+    accountEl.onclick = null;
+  }
+  function signedIn(p) {
+    accountEl.classList.remove('signin');
+    const initial = ((p.name && p.name[0]) || '?').toUpperCase();
+    accountEl.innerHTML =
+      '<div class="avatar">' + initial + '</div>' +
+      '<div class="who"><span class="name"></span><span class="plat">Microsoft · signed in</span></div>' +
+      '<span class="dot-good"></span>';
+    accountEl.querySelector('.who .name').textContent = p.name;
+    accountEl.onclick = () => { if (confirm('Sign out of ' + p.name + '?')) doLogout(); };
+  }
+  async function doLogin() {
+    busy('Opening Microsoft…');
+    const r = await window.auth.login();
+    if (r.ok) signedIn(r.profile);
+    else signedOut(r.error ? 'Sign-in failed — try again' : 'Sign in with Microsoft');
+  }
+  async function doLogout() { await window.auth.logout(); signedOut(); }
+
+  (async () => {
+    busy('Checking session…');
+    const r = await window.auth.restore();
+    if (r.ok) signedIn(r.profile); else signedOut();
+  })();
+
+  // ---- PLAY ----
+  const playBtn = document.querySelector('.play');
+  const statusEl = document.querySelector('.status');
+  let running = false;
+
+  function setStatus(text) { statusEl.innerHTML = '<span class="rdot"></span> '; statusEl.append(text); }
+  function idle() { running = false; playBtn.style.opacity = ''; playBtn.style.pointerEvents = ''; }
+
+  playBtn.addEventListener('click', async () => {
+    if (running) return;
+    if (accountEl.classList.contains('signin')) { doLogin(); return; }  // must sign in first
+    running = true;
+    playBtn.style.opacity = '0.65';
+    playBtn.style.pointerEvents = 'none';
+    setStatus('Preparing…');
+    const r = await window.game.launch();
+    if (!r.ok) { setStatus('Couldn’t launch: ' + r.error); idle(); }
+  });
+
+  window.game.onStatus((msg) => {
+    if (msg === 'CLOSED') { setStatus('Ready to launch'); idle(); return; }
+    setStatus(msg);
+    if (/^Starting Minecraft/.test(msg)) idle(); // game window is opening; re-arm Play
+  });
+</script>
+</body>
+</html>
