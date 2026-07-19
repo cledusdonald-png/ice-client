@@ -17,3 +17,8 @@ contextBridge.exposeInMainWorld('game', {
   launch: () => ipcRenderer.invoke('game:launch'),
   onStatus: (cb) => ipcRenderer.on('game:status', (e, msg) => cb(msg))
 });
+
+contextBridge.exposeInMainWorld('settings', {
+  get: () => ipcRenderer.invoke('settings:get'),
+  set: (patch) => ipcRenderer.invoke('settings:set', patch)
+});

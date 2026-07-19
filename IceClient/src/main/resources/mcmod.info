@@ -1,0 +1,16 @@
+[
+{
+  "modid": "unclesamclient",
+  "name": "Uncle Sam Client",
+  "description": "A modular Minecraft client with QOL, HUD, and faction/PvP utilities.",
+  "version": "0.1.0",
+  "mcversion": "1.8.9",
+  "url": "",
+  "updateUrl": "",
+  "authorList": ["YourNameHere"],
+  "credits": "",
+  "logoFile": "",
+  "screenshots": [],
+  "dependencies": []
+}
+]

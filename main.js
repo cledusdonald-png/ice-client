@@ -13,6 +13,38 @@ const launcher = new Client();
 
 const tokenPath = () => path.join(app.getPath('userData'), 'account.json');
 const gameDir = () => path.join(app.getPath('userData'), 'minecraft');
+const settingsPath = () => path.join(app.getPath('userData'), 'settings.json');
+
+// ---------- settings ----------
+
+const os = require('os');
+
+// Total installed RAM in whole GB — the slider's upper bound.
+const totalRamGb = () => Math.max(2, Math.floor(os.totalmem() / (1024 ** 3)));
+
+// Leave headroom for Windows + the launcher itself; never offer the whole machine.
+const maxRamGb = () => Math.max(2, totalRamGb() - 2);
+
+const DEFAULT_SETTINGS = { ramGb: 4 };
+
+function readSettings() {
+  try {
+    const s = JSON.parse(fs.readFileSync(settingsPath(), 'utf8'));
+    return Object.assign({}, DEFAULT_SETTINGS, s);
+  } catch (e) {
+    return Object.assign({}, DEFAULT_SETTINGS);
+  }
+}
+
+function writeSettings(s) {
+  try { fs.writeFileSync(settingsPath(), JSON.stringify(s, null, 2)); } catch (e) { /* ignore */ }
+}
+
+function clampRam(gb) {
+  const n = Math.round(Number(gb));
+  if (!isFinite(n)) return DEFAULT_SETTINGS.ramGb;
+  return Math.min(maxRamGb(), Math.max(2, n));
+}
 
 // The pre-built Forge 1.8.9 version we ship in game/forge (versions/ + libraries/).
 const FORGE_ID = '1.8.9-forge1.8.9-11.15.1.2318-1.8.9';
@@ -60,6 +92,21 @@ app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(
 
 ipcMain.on('win:minimize', (e) => BrowserWindow.fromWebContents(e.sender)?.minimize());
 ipcMain.on('win:close', (e) => BrowserWindow.fromWebContents(e.sender)?.close());
+
+// ---------- settings IPC ----------
+
+ipcMain.handle('settings:get', async () => {
+  const s = readSettings();
+  s.ramGb = clampRam(s.ramGb);
+  return { ...s, maxRamGb: maxRamGb(), totalRamGb: totalRamGb() };
+});
+
+ipcMain.handle('settings:set', async (e, patch) => {
+  const s = readSettings();
+  if (patch && patch.ramGb !== undefined) s.ramGb = clampRam(patch.ramGb);
+  writeSettings(s);
+  return { ...s, maxRamGb: maxRamGb(), totalRamGb: totalRamGb() };
+});
 
 // ---------- auth ----------
 
@@ -138,8 +185,22 @@ function status(msg) {
 let lastDebug = '';
 let sawGameData = false;
 
+/**
+ * Strips credentials before anything reaches the log. MCLC echoes the full
+ * java command line, which contains --accessToken — a live session token that
+ * grants account access on its own. The README asks users to share this file
+ * when reporting bugs, so it must never contain one.
+ */
+function redact(s) {
+  return String(s)
+    .replace(/(--accessToken\s+)\S+/g, '$1<redacted>')
+    .replace(/(--uuid\s+)\S+/g, '$1<redacted>')
+    .replace(/(accessToken"?\s*[:=]\s*"?)[A-Za-z0-9._-]+/g, '$1<redacted>')
+    .replace(/ey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, '<redacted-jwt>');
+}
+
 function logLine(tag, s) {
-  const line = '[' + new Date().toISOString() + '] ' + tag + ' ' + String(s).trim();
+  const line = '[' + new Date().toISOString() + '] ' + tag + ' ' + redact(String(s).trim());
   console.log(line);
   try { fs.appendFileSync(path.join(app.getPath('userData'), 'launcher.log'), line + '\n'); } catch (e) { /* ignore */ }
 }
@@ -185,14 +246,20 @@ ipcMain.handle('game:launch', async () => {
 
     sawGameData = false;
     lastDebug = '';
-    logLine('LAUNCH', 'java=' + java + ' root=' + dir + ' forge=' + FORGE_ID);
+
+    const ram = clampRam(readSettings().ramGb);
+    // Give the JVM a floor of 1G, or the full allocation if the user picked a
+    // small value — a min above max makes the JVM refuse to start.
+    const minRam = Math.min(1, ram);
+
+    logLine('LAUNCH', 'java=' + java + ' root=' + dir + ' forge=' + FORGE_ID + ' ram=' + ram + 'G');
     status('Preparing 1.8.9 + Forge + Ice Client (first launch takes a few minutes)…');
 
     const proc = await launcher.launch({
       authorization: currentAuth,
       root: dir,
       version: { number: '1.8.9', type: 'release', custom: FORGE_ID },
-      memory: { max: '4G', min: '2G' },
+      memory: { max: ram + 'G', min: minRam + 'G' },
       javaPath: java
     });
     if (!proc) {

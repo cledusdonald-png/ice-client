@@ -116,6 +116,11 @@
   .ver .vsub { font-size: 11px; color: var(--steel); }
   .ver .chev { color: var(--steel); }
 
+  .ram { display: flex; flex-direction: column; justify-content: center; gap: 6px; height: 44px; padding: 0 16px; border-radius: 12px; background: var(--panel); border: 1px solid var(--panel-line); min-width: 150px; }
+  .ramhead { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .ramval { font-size: 11px; color: var(--steel); letter-spacing: 0.04em; }
+  .ram input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 3px; border-radius: 999px; background: rgba(150, 200, 255, 0.22); outline: none; cursor: pointer; }
+  .ram input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 11px; height: 11px; border-radius: 50%; background: var(--ice); box-shadow: 0 0 8px var(--ice); cursor: pointer; }
   .status { margin-top: 22px; display: flex; align-items: center; gap: 10px; font-size: 12px; letter-spacing: 0.04em; color: var(--steel); }
   .status .rdot { width: 8px; height: 8px; border-radius: 50%; background: var(--ice); box-shadow: 0 0 10px var(--ice); }
 
@@ -182,9 +187,16 @@
             <div><div class="vlabel">1.8.9</div><div class="vsub">Forge &middot; Ice v0.1.0</div></div>
             <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
           </div>
+          <div class="ram">
+            <div class="ramhead">
+              <span class="vlabel">RAM</span>
+              <span class="ramval" id="ramval">&mdash;</span>
+            </div>
+            <input type="range" id="ram" min="2" max="8" step="1" value="4">
+          </div>
         </div>
 
-        <div class="status"><span class="rdot"></span> Ready to launch &middot; Java 8 detected &middot; 4&nbsp;GB allocated</div>
+        <div class="status"><span class="rdot"></span> Ready to launch &middot; Java 8 detected</div>
       </div>
 
       <div class="news">
@@ -244,6 +256,32 @@
     const r = await window.auth.restore();
     if (r.ok) signedIn(r.profile); else signedOut();
   })();
+
+  // ---- RAM ----
+  // Bounds come from the main process (installed RAM minus headroom), so the
+  // slider can never offer more than the machine actually has.
+  const ramEl = document.getElementById('ram');
+  const ramValEl = document.getElementById('ramval');
+  let ramMax = 8;
+
+  function paintRam(gb) { ramValEl.textContent = gb + ' GB / ' + ramMax + ' GB'; }
+
+  (async () => {
+    const s = await window.settings.get();
+    ramMax = s.maxRamGb;
+    ramEl.min = 2;
+    ramEl.max = s.maxRamGb;
+    ramEl.value = s.ramGb;
+    paintRam(s.ramGb);
+  })();
+
+  ramEl.addEventListener('input', () => paintRam(Number(ramEl.value)));
+  // Persist on release rather than per-pixel so we don't thrash the file.
+  ramEl.addEventListener('change', async () => {
+    const s = await window.settings.set({ ramGb: Number(ramEl.value) });
+    ramEl.value = s.ramGb;
+    paintRam(s.ramGb);
+  });
 
   // ---- PLAY ----
   const playBtn = document.querySelector('.play');

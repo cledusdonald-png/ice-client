@@ -1,0 +1,104 @@
+buildscript {
+    repositories {
+        maven { url = 'https://maven.minecraftforge.net' }
+        maven { url = 'https://repo.spongepowered.org/repository/maven-public/' }
+        maven { url = 'https://repo.maven.apache.org/maven2' }
+        mavenCentral()
+    }
+    dependencies {
+        // 2.1 is the ForgeGradle line that supports 1.8.9 (2.3 targets 1.12).
+        classpath group: 'net.minecraftforge.gradle', name: 'ForgeGradle', version: '2.1-SNAPSHOT', changing: true
+        // 0.6 is the last MixinGradle that works with FG2.
+        classpath 'org.spongepowered:mixingradle:0.6-SNAPSHOT'
+    }
+}
+
+apply plugin: 'net.minecraftforge.gradle.forge'
+apply plugin: 'org.spongepowered.mixin'
+apply plugin: 'eclipse'
+apply plugin: 'idea'
+
+version = mod_version
+group = mod_group
+archivesBaseName = mod_id
+
+sourceCompatibility = targetCompatibility = '1.8'
+
+// Source files are UTF-8 (they contain the § formatting char etc.); without
+// this, Gradle reads them as the platform default (Cp1252 on Windows) and
+// mangles those characters.
+tasks.withType(JavaCompile) { options.encoding = 'UTF-8' }
+compileJava.options.encoding = 'UTF-8'
+
+minecraft {
+    version = "1.8.9-11.15.1.2318-1.8.9"
+    runDir = "run"
+
+    // stable_22 is the 1.8.9 stable MCP mapping -- the same one the decompiled
+    // sources were remapped against, so names line up.
+    mappings = "stable_22"
+
+    // Mixin needs its tweaker on the command line in the dev run too, not just
+    // in the built jar's manifest.
+    clientJvmArgs += "-Dfml.coreMods.load=com.unclesam.client.mixin.MixinLoader"
+}
+
+repositories {
+    maven { url = 'https://repo.spongepowered.org/repository/maven-public/' }
+    mavenCentral()
+}
+
+dependencies {
+    // SchematicaBridge compiles against Schematica's API. These are the same
+    // jars the launcher ships in game/mods, kept in libs/ so the build doesn't
+    // depend on the launcher folder.
+    //
+    // Plain `compile`, not `deobfCompile`: FG2 only accepts maven coordinates
+    // for deobfCompile. That's fine here because SRG obfuscation only renames
+    // Minecraft's own methods/fields -- Schematica's API names and the MC class
+    // names in its signatures both survive intact, which is all we need to
+    // resolve against.
+    compile files('libs/Schematica-1.8.9-1.7.7.143-universal.jar')
+    compile files('libs/LunatriusCore-1.8.9-1.1.2.32-universal.jar')
+
+    // Minecraft already provides these; pulling Mixin's copies breaks the
+    // launch classpath.
+    compile('org.spongepowered:mixin:0.7.11-SNAPSHOT') {
+        exclude module: 'launchwrapper'
+        exclude module: 'guava'
+        exclude module: 'gson'
+        exclude module: 'commons-io'
+        exclude module: 'log4j-core'
+    }
+}
+
+mixin {
+    // refmap maps our MCP names to the SRG names the game actually runs with
+    add sourceSets.main, "mixins.${mod_id}.refmap.json"
+}
+
+jar {
+    manifest.attributes(
+            'FMLCorePlugin': 'com.unclesam.client.mixin.MixinLoader',
+            'FMLCorePluginContainsFMLMod': 'true',
+            'ForceLoadAsMod': 'true',
+            'TweakClass': 'org.spongepowered.asm.launch.MixinTweaker',
+            'TweakOrder': '0',
+            'ModSide': 'CLIENT',
+            'MixinConfigs': "mixins.${mod_id}.json"
+    )
+}
+
+processResources {
+    inputs.property "version", project.version
+    inputs.property "mcversion", project.minecraft.version
+
+    from(sourceSets.main.resources.srcDirs) {
+        include 'mcmod.info'
+        expand 'version': project.version, 'mcversion': project.minecraft.version
+    }
+
+    from(sourceSets.main.resources.srcDirs) {
+        exclude 'mcmod.info'
+    }
+}

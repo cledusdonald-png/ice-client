@@ -1,0 +1,19 @@
+{
+  "required": true,
+  "minVersion": "0.7.11",
+  "package": "com.unclesam.client.mixin.mixins",
+  "refmap": "mixins.iceclient.refmap.json",
+  "target": "@env(DEFAULT)",
+  "compatibilityLevel": "JAVA_8",
+  "client": [
+    "MixinEntity",
+    "MixinEntityRenderer",
+    "MixinBlockRedstoneWire",
+    "MixinItemRenderer",
+    "MixinRenderEntityItem",
+    "MixinGuiNewChat",
+    "MixinGuiOverlayDebug",
+    "MixinGuiScreen",
+    "MixinPlayerControllerMP"
+  ]
+}
