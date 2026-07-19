@@ -377,6 +377,95 @@ public final class SchematicaBridge {
       }
    }
 
+   /**
+    * Writes the world region between two corners out as a .schematic.
+    *
+    * <p>Corners are given in any order and normalised here, because they come
+    * from two separate player clicks and there is no reason B should be the
+    * higher one.
+    *
+    * <p>Block IDs are written to the classic single-byte {@code Blocks} array.
+    * 1.8.9 vanilla IDs all fit in a byte, so the {@code AddBlocks} extension
+    * that modded IDs above 255 would need is deliberately not emitted -- a
+    * modded block is stored as air rather than silently truncated into a
+    * different block, which would be worse than a hole.
+    *
+    * @return the written file name, or null on failure
+    */
+   public static String saveRegion(BlockPos a, BlockPos b, String name) {
+      if(a == null || b == null || mc().theWorld == null) {
+         return null;
+      }
+
+      try {
+         File dir = directory();
+         if(dir == null) {
+            return null;
+         }
+
+         if(!dir.exists()) {
+            dir.mkdirs();
+         }
+
+         int minX = Math.min(a.getX(), b.getX());
+         int minY = Math.min(a.getY(), b.getY());
+         int minZ = Math.min(a.getZ(), b.getZ());
+         int maxX = Math.max(a.getX(), b.getX());
+         int maxY = Math.max(a.getY(), b.getY());
+         int maxZ = Math.max(a.getZ(), b.getZ());
+
+         int w = maxX - minX + 1;
+         int h = maxY - minY + 1;
+         int l = maxZ - minZ + 1;
+
+         // 32767 is the format's signed-short ceiling per axis; the volume cap
+         // is ours, to stop a stray click allocating a gigabyte.
+         if(w > 32767 || h > 32767 || l > 32767 || (long)w * (long)h * (long)l > 4000000L) {
+            return null;
+         }
+
+         byte[] blocks = new byte[w * h * l];
+         byte[] data = new byte[w * h * l];
+
+         for(int y = 0; y < h; ++y) {
+            for(int z = 0; z < l; ++z) {
+               for(int x = 0; x < w; ++x) {
+                  IBlockState st = mc().theWorld.getBlockState(
+                        new BlockPos(minX + x, minY + y, minZ + z));
+
+                  int id = net.minecraft.block.Block.getIdFromBlock(st.getBlock());
+                  int idx = (y * l + z) * w + x;
+
+                  if(id < 0 || id > 255) {
+                     blocks[idx] = 0;
+                     data[idx] = 0;
+                  } else {
+                     blocks[idx] = (byte)id;
+                     data[idx] = (byte)st.getBlock().getMetaFromState(st);
+                  }
+               }
+            }
+         }
+
+         NBTTagCompound nbt = new NBTTagCompound();
+         nbt.setShort("Width", (short)w);
+         nbt.setShort("Height", (short)h);
+         nbt.setShort("Length", (short)l);
+         nbt.setString("Materials", "Alpha");
+         nbt.setByteArray("Blocks", blocks);
+         nbt.setByteArray("Data", data);
+         nbt.setTag("Entities", new NBTTagList());
+         nbt.setTag("TileEntities", new NBTTagList());
+
+         String fileName = name.toLowerCase().endsWith(".schematic") ? name : name + ".schematic";
+         File out = new File(dir, fileName);
+         CompressedStreamTools.writeCompressed(nbt, new FileOutputStream(out));
+         return out.getName();
+      } catch (Exception e) {
+         return null;
+      }
+   }
+
    public interface MissingVisitor {
       void accept(double var1, double var3, double var5);
    }

@@ -60,6 +60,12 @@ import com.unclesam.client.module.modules.render.CustomMcGui;
 import com.unclesam.client.module.modules.render.Minimap;
 import com.unclesam.client.module.modules.schematic.EasyPlace;
 import com.unclesam.client.module.modules.schematic.SchemTransform;
+import com.unclesam.client.module.modules.schematic.SelectionTool;
+import com.unclesam.client.module.modules.groups.PingBlock;
+import com.unclesam.client.module.modules.groups.ChunkPing;
+import com.unclesam.client.module.modules.groups.PingAdjust;
+import com.unclesam.client.module.modules.hud.QuickDisplay;
+import com.unclesam.client.ping.PingManager;
 import com.unclesam.client.module.modules.misc.Notifications;
 import com.unclesam.client.module.modules.misc.Screenshots;
 import com.unclesam.client.module.modules.render.MotionBlur;
@@ -192,6 +198,11 @@ public class ModuleManager {
       tag(register(new CannonReplay()), ModuleCategory.FACTIONS, (String)null);
       tag(register(new EasyPlace()), ModuleCategory.PRINTER, "Printer");
       tag(register(new SchemTransform()), ModuleCategory.PRINTER, "Printer");
+      tag(register(new SelectionTool()), ModuleCategory.PRINTER, "Printer");
+      tag(register(new PingBlock()), ModuleCategory.FACTIONS, "Groups");
+      tag(register(new ChunkPing()), ModuleCategory.FACTIONS, "Groups");
+      tag(register(new PingAdjust()), ModuleCategory.FACTIONS, "Groups");
+      tag(register(new QuickDisplay()), ModuleCategory.HUD, (String)null);
       tag(register(new Screenshots()), ModuleCategory.GENERAL, (String)null);
       tag(register(new MotionBlur()), ModuleCategory.MECHANIC, (String)null);
       tag(register(new LeftHand()), ModuleCategory.MECHANIC, (String)null);
@@ -200,6 +211,10 @@ public class ModuleManager {
       // Registered after the modules so the gate lookup in its render handler
       // always resolves.
       NotificationManager.init();
+
+      // Owns its own render hook so placed pings stay visible even if the
+      // module that placed them is toggled off afterwards.
+      PingManager.init();
    }
 
    private static void tag(Module m, ModuleCategory category, String group) {

@@ -6,6 +6,7 @@ import com.unclesam.client.gui.HudEditorScreen;
 import com.unclesam.client.module.Module;
 import com.unclesam.client.module.ModuleCategory;
 import com.unclesam.client.module.ModuleManager;
+import com.unclesam.client.schematic.Selection;
 import com.unclesam.client.schematica.SchematicaBridge;
 import com.unclesam.client.setting.BooleanSetting;
 import com.unclesam.client.setting.ColorSetting;
@@ -14,6 +15,10 @@ import com.unclesam.client.setting.ModeSetting;
 import com.unclesam.client.setting.NumberSetting;
 import com.unclesam.client.setting.Setting;
 import java.awt.Desktop;
+import java.awt.Toolkit;
+import java.awt.datatransfer.DataFlavor;
+import java.awt.datatransfer.StringSelection;
+import java.awt.datatransfer.Transferable;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -26,6 +31,9 @@ import java.util.Objects;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.renderer.GlStateManager;
+import net.minecraft.util.BlockPos;
+import net.minecraft.util.EnumFacing;
+import net.minecraft.util.MathHelper;
 import org.lwjgl.input.Mouse;
 import org.lwjgl.opengl.GL11;
 
@@ -968,6 +976,29 @@ public class ClickGuiScreen extends GuiScreen {
          return;
       }
 
+      // Naming a selection on the Points tab. Checked before the macro routes
+      // so a schematic name containing letters cannot fall through to them.
+      if(this.editingSaveName) {
+         if(keyCode == 28 || keyCode == 156 || keyCode == 1) {
+            this.editingSaveName = false;
+            if(this.saveName.trim().isEmpty()) {
+               this.saveName = "selection";
+            }
+         } else if(keyCode == 14) {
+            if(!this.saveName.isEmpty()) {
+               this.saveName = this.saveName.substring(0, this.saveName.length() - 1);
+            }
+         } else if(typedChar >= 32 && typedChar != 127 && this.saveName.length() < 40) {
+            // Strip characters the filesystem will not take, rather than
+            // failing at write time with a name the user already typed.
+            if("\\/:*?\"<>|".indexOf(typedChar) < 0) {
+               this.saveName = this.saveName + typedChar;
+            }
+         }
+
+         return;
+      }
+
       // Typing a macro command.
       if(this.macroInputFocused) {
          if(keyCode == 28 || keyCode == 156) {
@@ -1034,15 +1065,101 @@ public class ClickGuiScreen extends GuiScreen {
       }
    }
 
+   /**
+    * Workspace sub-tab: 0 Browser, 1 Transform, 2 Points.
+    *
+    * <p>These are tabs inside the Schematic page rather than four more sidebar
+    * entries, because they all act on the one loaded schematic -- separating
+    * them at nav level would imply they were independent screens.
+    */
+   private int schemTab = 0;
+
+   private static final String[] SCHEM_TABS = new String[]{"Browser", "Transform", "Points"};
+
+   /** Hit box of each sub-tab, filled during layout. */
+   private final int[] schemTabX = new int[SCHEM_TABS.length];
+   private final int[] schemTabW = new int[SCHEM_TABS.length];
+   private int schemTabY;
+
+   /** Name the Points page will save under; edited in place. */
+   private String saveName = "selection";
+   private boolean editingSaveName;
+
+   private void layoutSchematicTabs() {
+      this.schemTabY = this.contentY + 18;
+      int x = this.contentX;
+
+      for(int i = 0; i < SCHEM_TABS.length; ++i) {
+         int w = this.fontRendererObj.getStringWidth(SCHEM_TABS[i]) + 16;
+         this.schemTabX[i] = x;
+         this.schemTabW[i] = w;
+         x += w + 4;
+      }
+
+   }
+
+   private void drawSchematicTabs(int mouseX, int mouseY) {
+      for(int i = 0; i < SCHEM_TABS.length; ++i) {
+         boolean on = this.schemTab == i;
+         boolean hov = mouseX >= this.schemTabX[i] && mouseX <= this.schemTabX[i] + this.schemTabW[i]
+               && mouseY >= this.schemTabY && mouseY <= this.schemTabY + 16;
+
+         drawRect(this.schemTabX[i], this.schemTabY, this.schemTabX[i] + this.schemTabW[i],
+               this.schemTabY + 16, on ? -14069917 : (hov ? 486539263 : 218103807));
+
+         int tw = this.fontRendererObj.getStringWidth(SCHEM_TABS[i]);
+         this.fontRendererObj.drawStringWithShadow(SCHEM_TABS[i],
+               (float)(this.schemTabX[i] + this.schemTabW[i] / 2 - tw / 2),
+               (float)(this.schemTabY + 4), on ? -1379073 : -8088413);
+      }
+
+   }
+
+   /** @return true when the click landed on a tab and switched pages */
+   private boolean handleSchemTabClick(int mouseX, int mouseY) {
+      if(mouseY < this.schemTabY || mouseY > this.schemTabY + 16) {
+         return false;
+      }
+
+      for(int i = 0; i < SCHEM_TABS.length; ++i) {
+         if(mouseX >= this.schemTabX[i] && mouseX <= this.schemTabX[i] + this.schemTabW[i]) {
+            if(this.schemTab != i) {
+               this.schemTab = i;
+               this.editingSaveName = false;
+               // Each tab owns a different button set, so the old page's hit
+               // boxes must not survive the switch.
+               this.layoutSchematic();
+            }
+
+            return true;
+         }
+      }
+
+      return false;
+   }
+
    private void layoutSchematic() {
       this.sButtons.clear();
+      this.layoutSchematicTabs();
+
+      if(this.schemTab == 1) {
+         this.layoutTransformPage();
+         return;
+      }
+
+      if(this.schemTab == 2) {
+         this.layoutPointsPage();
+         return;
+      }
+
       this.refreshSchemFiles();
-      int top = this.contentY + 20;
+      // Below the sub-tab row, which sits at contentY+18 and is 16 tall.
+      int top = this.contentY + 40;
       int bottomRow = 22;
       this.schemListX = this.contentX;
       this.schemListY = top;
       this.schemListW = this.contentW * 45 / 100;
-      this.schemListH = this.contentH - 20 - bottomRow - 6;
+      this.schemListH = this.contentH - 40 - bottomRow - 6;
       int colX = this.schemListX + this.schemListW + 8;
       int colW = this.contentX + this.contentW - colX;
       if(SchematicaBridge.isAvailable()) {
@@ -1070,6 +1187,133 @@ public class ClickGuiScreen extends GuiScreen {
       this.sButtons.add(new ClickGuiScreen.SButton(11, this.contentX + 2 * (bw + gap), by2, bw, bottomRow - 2, "Unload"));
    }
 
+   /**
+    * Transform page: rotate, flip and nudge the loaded schematic.
+    *
+    * <p>Button ids continue from the Browser page's 0-11 rather than restarting,
+    * so {@link #schematicAction} stays one flat switch and no id can mean two
+    * different things depending on which tab is open.
+    */
+   private void layoutTransformPage() {
+      int top = this.contentY + 44;
+      int gap = 6;
+      int bw = (this.contentW - gap) / 2;
+      int bh = 18;
+
+      this.sButtons.add(new ClickGuiScreen.SButton(12, this.contentX, top, bw, bh, "Rotate CW"));
+      this.sButtons.add(new ClickGuiScreen.SButton(13, this.contentX + bw + gap, top, bw, bh, "Rotate CCW"));
+
+      int row2 = top + bh + gap;
+      this.sButtons.add(new ClickGuiScreen.SButton(14, this.contentX, row2, bw, bh, "Flip X"));
+      this.sButtons.add(new ClickGuiScreen.SButton(15, this.contentX + bw + gap, row2, bw, bh, "Flip Z"));
+
+      int row3 = row2 + bh + gap * 3;
+      int tw = (this.contentW - gap * 2) / 3;
+      this.sButtons.add(new ClickGuiScreen.SButton(16, this.contentX, row3, tw, bh, "Move Here"));
+      this.sButtons.add(new ClickGuiScreen.SButton(17, this.contentX + tw + gap, row3, tw, bh, "Copy Placement"));
+      this.sButtons.add(new ClickGuiScreen.SButton(18, this.contentX + 2 * (tw + gap), row3, tw, bh, "Apply Placement"));
+
+      int row4 = row3 + bh + gap * 3;
+      int nw = (this.contentW - gap * 5) / 6;
+      String[] labels = new String[]{"-X", "+X", "-Y", "+Y", "-Z", "+Z"};
+      for(int i = 0; i < 6; ++i) {
+         this.sButtons.add(new ClickGuiScreen.SButton(19 + i,
+               this.contentX + i * (nw + gap), row4, nw, bh, labels[i]));
+      }
+
+   }
+
+   private void drawTransformPage(int mouseX, int mouseY) {
+      if(!SchematicaBridge.isAvailable()) {
+         this.fontRendererObj.drawStringWithShadow("Schematica mod isn\'t installed.",
+               (float)this.contentX, (float)(this.contentY + 44), -8088413);
+         return;
+      }
+
+      boolean has = SchematicaBridge.hasSchematic();
+      String header = has
+            ? "Transforming: " + (this.loadedFile != null ? this.loadedFile : SchematicaBridge.name())
+            : "Load a schematic from the Browser tab first";
+      this.fontRendererObj.drawStringWithShadow(this.trim(header, this.contentW),
+            (float)this.contentX, (float)(this.contentY + 6), has ? -10696961 : -8088413);
+
+      this.drawButtons(mouseX, mouseY);
+
+      int[] pos = SchematicaBridge.position();
+      String posText = pos == null ? "Position: -" : "Position: " + pos[0] + ", " + pos[1] + ", " + pos[2];
+      this.fontRendererObj.drawStringWithShadow(posText, (float)this.contentX,
+            (float)(this.contentY + this.contentH - 30), -8088413);
+
+      this.fontRendererObj.drawStringWithShadow("Nudge step: hold Shift for 5",
+            (float)this.contentX, (float)(this.contentY + this.contentH - 18), -10461088);
+
+      if(!this.schemStatus.isEmpty()) {
+         this.fontRendererObj.drawStringWithShadow(this.trim(this.schemStatus, this.contentW),
+               (float)this.contentX, (float)(this.contentY + this.contentH - 6), -8088413);
+      }
+
+   }
+
+   /** Points page: the Point A/B region and saving it out as a schematic. */
+   private void layoutPointsPage() {
+      int gap = 6;
+      int bh = 18;
+      int bw = (this.contentW - gap * 2) / 3;
+      int row = this.contentY + 96;
+
+      this.sButtons.add(new ClickGuiScreen.SButton(25, this.contentX, row, bw, bh, "Set A to me"));
+      this.sButtons.add(new ClickGuiScreen.SButton(26, this.contentX + bw + gap, row, bw, bh, "Set B to me"));
+      this.sButtons.add(new ClickGuiScreen.SButton(27, this.contentX + 2 * (bw + gap), row, bw, bh, "Clear"));
+
+      int row2 = row + bh + gap * 2;
+      int half = (this.contentW - gap) / 2;
+      this.sButtons.add(new ClickGuiScreen.SButton(28, this.contentX, row2, half, bh, "Rename"));
+      this.sButtons.add(new ClickGuiScreen.SButton(29, this.contentX + half + gap, row2, half, bh, "Save Selection"));
+   }
+
+   private void drawPointsPage(int mouseX, int mouseY) {
+      int y = this.contentY + 44;
+
+      BlockPos a = Selection.getA();
+      BlockPos b = Selection.getB();
+
+      this.fontRendererObj.drawStringWithShadow("REGION", (float)this.contentX, (float)(this.contentY + 6), -8088413);
+
+      this.fontRendererObj.drawStringWithShadow(
+            "Point A: " + (a == null ? "unset" : a.getX() + ", " + a.getY() + ", " + a.getZ()),
+            (float)this.contentX, (float)y, a == null ? -8088413 : -1379073);
+
+      this.fontRendererObj.drawStringWithShadow(
+            "Point B: " + (b == null ? "unset" : b.getX() + ", " + b.getY() + ", " + b.getZ()),
+            (float)this.contentX, (float)(y + 12), b == null ? -8088413 : -1379073);
+
+      int[] size = Selection.size();
+      String sizeText = size == null
+            ? "Size: -    (set both points, or bind SelectionTool's keys)"
+            : "Size: " + size[0] + " x " + size[1] + " x " + size[2] + "    (" + Selection.volume() + " blocks)";
+      this.fontRendererObj.drawStringWithShadow(sizeText, (float)this.contentX, (float)(y + 28),
+            size == null ? -8088413 : -10696961);
+
+      // The cap mirrors the bridge's, so the limit is visible before you click
+      // Save rather than as a failure message afterwards.
+      if(Selection.volume() > 4000000L) {
+         this.fontRendererObj.drawStringWithShadow("Too large to save (max 4,000,000 blocks)",
+               (float)this.contentX, (float)(y + 40), -43691);
+      }
+
+      String nameLabel = "Save as: " + this.saveName + (this.editingSaveName ? "_" : ".schematic");
+      this.fontRendererObj.drawStringWithShadow(nameLabel, (float)this.contentX,
+            (float)(this.contentY + 84), this.editingSaveName ? -10696961 : -8088413);
+
+      this.drawButtons(mouseX, mouseY);
+
+      if(!this.schemStatus.isEmpty()) {
+         this.fontRendererObj.drawStringWithShadow(this.trim(this.schemStatus, this.contentW),
+               (float)this.contentX, (float)(this.contentY + this.contentH - 8), -8088413);
+      }
+
+   }
+
    private void refreshSchemFiles() {
       this.schemFiles.clear();
       if(SchematicaBridge.isAvailable()) {
@@ -1088,6 +1332,18 @@ public class ClickGuiScreen extends GuiScreen {
    }
 
    private void drawSchematicPanel(int mouseX, int mouseY) {
+      this.drawSchematicTabs(mouseX, mouseY);
+
+      if(this.schemTab == 1) {
+         this.drawTransformPage(mouseX, mouseY);
+         return;
+      }
+
+      if(this.schemTab == 2) {
+         this.drawPointsPage(mouseX, mouseY);
+         return;
+      }
+
       if(!SchematicaBridge.isAvailable()) {
          this.fontRendererObj.drawStringWithShadow("Schematica mod isn\'t installed.", (float)this.contentX, (float)(this.contentY + 22), -8088413);
          this.drawButtons(mouseX, mouseY);
@@ -1162,6 +1418,12 @@ public class ClickGuiScreen extends GuiScreen {
 
    private void handleSchematicClick(int mouseX, int mouseY, int mouseButton) {
       if(mouseButton == 0) {
+         // Tabs first: they overlay the same region the pages draw into, and a
+         // page hit box must never swallow a tab click.
+         if(this.handleSchemTabClick(mouseX, mouseY)) {
+            return;
+         }
+
          for(ClickGuiScreen.SButton b : this.sButtons) {
             if(b.hit(mouseX, mouseY)) {
                this.schematicAction(b.id);
@@ -1169,7 +1431,8 @@ public class ClickGuiScreen extends GuiScreen {
             }
          }
 
-         if(SchematicaBridge.isAvailable() && mouseX >= this.schemListX && mouseX <= this.schemListX + this.schemListW && mouseY >= this.schemListY && mouseY <= this.schemListY + this.schemListH) {
+         // The file list only exists on the Browser tab.
+         if(this.schemTab == 0 && SchematicaBridge.isAvailable() && mouseX >= this.schemListX && mouseX <= this.schemListX + this.schemListW && mouseY >= this.schemListY && mouseY <= this.schemListY + this.schemListH) {
             for(int i = 0; i < this.schemFiles.size(); ++i) {
                int rowY = this.schemListY + i * 14 - this.schemScroll;
                if(mouseY >= rowY && mouseY <= rowY + 14 && rowY >= this.schemListY && rowY + 14 <= this.schemListY + this.schemListH + 14) {
@@ -1231,6 +1494,171 @@ public class ClickGuiScreen extends GuiScreen {
          SchematicaBridge.unload();
          this.loadedFile = null;
          this.schemStatus = "Unloaded.";
+         break;
+
+      // --- Transform tab ---
+      case 12:
+         this.schemStatus = SchematicaBridge.rotate(true)
+               ? "Rotated clockwise." : "Rotate failed -- load a schematic first.";
+         break;
+      case 13:
+         this.schemStatus = SchematicaBridge.rotate(false)
+               ? "Rotated counter-clockwise." : "Rotate failed -- load a schematic first.";
+         break;
+      case 14:
+         this.schemStatus = SchematicaBridge.flip(EnumFacing.EAST)
+               ? "Flipped on X." : "Flip failed -- load a schematic first.";
+         break;
+      case 15:
+         this.schemStatus = SchematicaBridge.flip(EnumFacing.SOUTH)
+               ? "Flipped on Z." : "Flip failed -- load a schematic first.";
+         break;
+      case 16:
+         SchematicaBridge.moveHere();
+         this.schemStatus = SchematicaBridge.hasSchematic() ? "Moved to you." : "Load a schematic first.";
+         break;
+      case 17:
+         this.copyPlacement();
+         break;
+      case 18:
+         this.applyPlacement();
+         break;
+      case 19:
+         SchematicaBridge.nudge(-step, 0, 0);
+         break;
+      case 20:
+         SchematicaBridge.nudge(step, 0, 0);
+         break;
+      case 21:
+         SchematicaBridge.nudge(0, -step, 0);
+         break;
+      case 22:
+         SchematicaBridge.nudge(0, step, 0);
+         break;
+      case 23:
+         SchematicaBridge.nudge(0, 0, -step);
+         break;
+      case 24:
+         SchematicaBridge.nudge(0, 0, step);
+         break;
+
+      // --- Points tab ---
+      case 25:
+         this.setPointToPlayer(true);
+         break;
+      case 26:
+         this.setPointToPlayer(false);
+         break;
+      case 27:
+         Selection.clear();
+         this.schemStatus = "Selection cleared.";
+         break;
+      case 28:
+         // Typing is handled in keyTyped while this flag is set, rather than
+         // with a text-field widget this GUI does not have.
+         this.editingSaveName = !this.editingSaveName;
+         this.schemStatus = this.editingSaveName ? "Type a name, Enter to finish." : "";
+         break;
+      case 29:
+         this.saveSelection();
+      }
+
+   }
+
+   private void setPointToPlayer(boolean isA) {
+      if(this.mc.thePlayer == null) {
+         return;
+      }
+
+      BlockPos pos = new BlockPos(
+            MathHelper.floor_double(this.mc.thePlayer.posX),
+            MathHelper.floor_double(this.mc.thePlayer.posY),
+            MathHelper.floor_double(this.mc.thePlayer.posZ));
+
+      if(isA) {
+         Selection.setA(pos);
+      } else {
+         Selection.setB(pos);
+      }
+
+      this.schemStatus = "Point " + (isA ? "A" : "B") + " set to " + pos.getX() + ", " + pos.getY() + ", " + pos.getZ();
+   }
+
+   private void saveSelection() {
+      if(!Selection.isComplete()) {
+         this.schemStatus = "Set both points first.";
+         return;
+      }
+
+      String written = SchematicaBridge.saveRegion(Selection.getA(), Selection.getB(), this.saveName);
+      if(written == null) {
+         this.schemStatus = "Save failed -- region may be too large.";
+         return;
+      }
+
+      this.refreshSchemFiles();
+      this.schemStatus = "Saved " + written + " -- find it on the Browser tab.";
+   }
+
+   private void copyPlacement() {
+      int[] p = SchematicaBridge.position();
+      if(p == null) {
+         this.schemStatus = "Load a schematic first.";
+         return;
+      }
+
+      String descriptor = "schem:" + SchematicaBridge.name() + "@" + p[0] + "," + p[1] + "," + p[2];
+
+      try {
+         Toolkit.getDefaultToolkit().getSystemClipboard()
+               .setContents(new StringSelection(descriptor), null);
+         this.schemStatus = "Placement copied to clipboard.";
+      } catch (Throwable t) {
+         this.schemStatus = "Clipboard unavailable.";
+      }
+
+   }
+
+   private void applyPlacement() {
+      int[] cur = SchematicaBridge.position();
+      if(cur == null) {
+         this.schemStatus = "Load a schematic first.";
+         return;
+      }
+
+      String text = null;
+      try {
+         Transferable t = Toolkit.getDefaultToolkit().getSystemClipboard().getContents(null);
+         if(t != null && t.isDataFlavorSupported(DataFlavor.stringFlavor)) {
+            text = (String)t.getTransferData(DataFlavor.stringFlavor);
+         }
+      } catch (Throwable ignored) {
+         // Clipboard owned by another process -- treated as empty below.
+      }
+
+      if(text == null || !text.startsWith("schem:")) {
+         this.schemStatus = "No placement on the clipboard.";
+         return;
+      }
+
+      int at = text.lastIndexOf(64);
+      String[] parts = at < 0 ? null : text.substring(at + 1).split(",");
+      if(parts == null || parts.length != 3) {
+         this.schemStatus = "Malformed placement.";
+         return;
+      }
+
+      try {
+         int tx = Integer.parseInt(parts[0].trim());
+         int ty = Integer.parseInt(parts[1].trim());
+         int tz = Integer.parseInt(parts[2].trim());
+
+         // nudge() is relative, so express the move as a delta from where the
+         // schematic currently sits.
+         SchematicaBridge.nudge(tx - cur[0], ty - cur[1], tz - cur[2]);
+         this.schemStatus = "Moved to " + tx + ", " + ty + ", " + tz + ".";
+      } catch (NumberFormatException e) {
+         this.schemStatus = "Malformed placement.";
       }
 
    }
