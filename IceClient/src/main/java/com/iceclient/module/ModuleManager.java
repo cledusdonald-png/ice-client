@@ -65,6 +65,7 @@ import com.iceclient.module.modules.groups.PingBlock;
 import com.iceclient.module.modules.groups.ChunkPing;
 import com.iceclient.module.modules.groups.PingAdjust;
 import com.iceclient.module.modules.hud.QuickDisplay;
+import com.iceclient.module.modules.hud.SoulModeHud;
 import com.iceclient.module.modules.admin.PlayerRadar;
 import com.iceclient.ping.PingManager;
 import com.iceclient.schematic.SelectionRenderer;
@@ -206,6 +207,7 @@ public class ModuleManager {
       tag(register(new ChunkPing()), ModuleCategory.FACTIONS, "Groups");
       tag(register(new PingAdjust()), ModuleCategory.FACTIONS, "Groups");
       tag(register(new QuickDisplay()), ModuleCategory.HUD, (String)null);
+      tag(register(new SoulModeHud()), ModuleCategory.HUD, (String)null);
       tag(register(new Screenshots()), ModuleCategory.GENERAL, (String)null);
       tag(register(new MotionBlur()), ModuleCategory.MECHANIC, (String)null);
       tag(register(new LeftHand()), ModuleCategory.MECHANIC, (String)null);
