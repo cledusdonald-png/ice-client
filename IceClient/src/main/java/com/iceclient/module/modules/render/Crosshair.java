@@ -79,29 +79,41 @@ public class Crosshair extends Module {
          event.setCanceled(true);
       }
 
-      // The event carries the resolution already scaled for this frame; building
-      // our own can disagree with the active matrix.
       ScaledResolution res = event.resolution;
+      int sf = Math.max(1, res.getScaleFactor());
 
-      // Float centre, not scaledWidth/2. Integer coordinates address pixel
-      // *corners*, so an integer-aligned bar of odd thickness is always half a
-      // pixel off true centre -- which at GUI scale 3 is three real pixels and
-      // is exactly the "slightly off" you can see. Working in floats lets the
-      // bar straddle the centre line properly.
-      float cx = (float)res.getScaledWidth() / 2.0F;
-      float cy = (float)res.getScaledHeight() / 2.0F;
+      // Drawn in real framebuffer pixels, not GUI pixels.
+      //
+      // The GUI matrix maps a scaled space onto the window, and the screen
+      // centre only lands on a whole GUI pixel when the scaled width happens to
+      // be even. The rest of the time a 1-wide bar spans something like 212.5 to
+      // 213.5 -- half-covering two pixel columns -- and with no antialiasing the
+      // rasteriser picks one, which is what made the crosshair look lopsided and
+      // what no amount of arithmetic in GUI space could fix.
+      //
+      // Scaling the matrix down by the GUI scale makes one unit one real pixel.
+      // The centre is then exactly displayWidth/2, and because every size is
+      // multiplied back up by the same factor each arm is a whole number of real
+      // pixels: symmetric, and crisp at any GUI scale.
+      float cx = (float)this.mc.displayWidth / 2.0F;
+      float cy = (float)this.mc.displayHeight / 2.0F;
 
-      float len = (float)this.size.get();
-      float th = (float)this.thickness.get();
-      float g = (float)this.gap.get();
+      float len = (float)this.size.get() * sf;
+      float th = (float)this.thickness.get() * sf;
+      float g = (float)this.gap.get() * sf;
       float half = th / 2.0F;
       int col = this.chroma.get() ? ColorUtil.withAlpha(ColorUtil.chroma(0), 255) : this.color.getRGB();
 
-      cx += (float)this.offsetX.get();
-      cy += (float)this.offsetY.get();
+      cx += (float)this.offsetX.get() * sf;
+      cy += (float)this.offsetY.get() * sf;
 
       GlStateManager.pushMatrix();
+      GlStateManager.scale(1.0F / (float)sf, 1.0F / (float)sf, 1.0F);
       GlStateManager.enableBlend();
+      // Set explicitly: whatever overlay element ran before this one leaves its
+      // own blend function behind, and inheriting an inverting one would tint
+      // the crosshair against the background instead of using its colour.
+      GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
       GlStateManager.disableLighting();
       GlStateManager.disableTexture2D();
       GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);

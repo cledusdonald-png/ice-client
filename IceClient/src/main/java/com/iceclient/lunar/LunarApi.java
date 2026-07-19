@@ -214,7 +214,11 @@ public final class LunarApi {
       String id = pb.readStringFromBuffer(64);
 
       if(debug) {
-         IceClient.LOGGER.info("Lunar (legacy): '" + id + "' (" + buf.readableBytes() + " bytes left)");
+         // Hex, not just a byte count. The layouts below were never confirmed,
+         // and a count alone cannot tell you whether field three is an int, a
+         // long or a string -- the actual bytes can. This is what makes a log
+         // from a real server enough to correct the parser from.
+         IceClient.LOGGER.info("Lunar (legacy): '" + id + "' " + hex(buf));
       }
 
       if("cooldown".equals(id)) {
@@ -229,6 +233,29 @@ public final class LunarApi {
          IceClient.LOGGER.info("Lunar (legacy): unhandled id '" + id + "'");
       }
 
+   }
+
+   /**
+    * The still-unread bytes as hex plus their printable form, without consuming
+    * them -- reading the buffer here would leave nothing for the real parser.
+    */
+   private static String hex(ByteBuf buf) {
+      int n = Math.min(buf.readableBytes(), 96);
+      if(n <= 0) {
+         return "(empty)";
+      }
+
+      StringBuilder h = new StringBuilder(n * 3);
+      StringBuilder t = new StringBuilder(n);
+
+      for(int i = 0; i < n; ++i) {
+         int b = buf.getByte(buf.readerIndex() + i) & 255;
+         h.append(String.format("%02X ", Integer.valueOf(b)));
+         t.append(b >= 32 && b < 127 ? (char)b : '.');
+      }
+
+      String more = buf.readableBytes() > n ? " ...+" + (buf.readableBytes() - n) : "";
+      return "[" + buf.readableBytes() + "B] " + h.toString().trim() + more + "  |" + t + "|";
    }
 
    private static void readCooldown(PacketBuffer pb) {
