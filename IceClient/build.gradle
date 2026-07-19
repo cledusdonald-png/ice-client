@@ -40,7 +40,7 @@ minecraft {
 
     // Mixin needs its tweaker on the command line in the dev run too, not just
     // in the built jar's manifest.
-    clientJvmArgs += "-Dfml.coreMods.load=com.unclesam.client.mixin.MixinLoader"
+    clientJvmArgs += "-Dfml.coreMods.load=com.iceclient.mixin.MixinLoader"
 }
 
 repositories {
@@ -79,7 +79,7 @@ mixin {
 
 jar {
     manifest.attributes(
-            'FMLCorePlugin': 'com.unclesam.client.mixin.MixinLoader',
+            'FMLCorePlugin': 'com.iceclient.mixin.MixinLoader',
             'FMLCorePluginContainsFMLMod': 'true',
             'ForceLoadAsMod': 'true',
             'TweakClass': 'org.spongepowered.asm.launch.MixinTweaker',
