@@ -73,9 +73,15 @@ public class ArmorSetTags extends Module {
          }
 
          String label = this.brackets.get() ? "[" + set + "]" : set;
-         // Sits above the vanilla nametag rather than replacing it.
-         WorldRenderUtil.text3d(label, p.posX,
-               p.posY + (double)p.height + this.heightOffset.get(), p.posZ,
+         // Sits above the vanilla nametag rather than replacing it. Positioned
+         // from the interpolated render position for the same reason the hit
+         // boxes are: a label pinned to the 20Hz tick position visibly lags the
+         // player it is labelling.
+         float pt = event.partialTicks;
+         WorldRenderUtil.text3d(label,
+               WorldRenderUtil.renderX(p, pt),
+               WorldRenderUtil.renderY(p, pt) + (double)p.height + this.heightOffset.get(),
+               WorldRenderUtil.renderZ(p, pt),
                col, 0.025F * (float)this.scale.get());
       }
 

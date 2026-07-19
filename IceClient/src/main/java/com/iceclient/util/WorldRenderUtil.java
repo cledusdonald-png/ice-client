@@ -4,6 +4,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.client.renderer.entity.RenderManager;
+import net.minecraft.entity.Entity;
 import net.minecraft.util.AxisAlignedBB;
 import org.lwjgl.opengl.GL11;
 
@@ -25,6 +26,46 @@ public final class WorldRenderUtil {
 
    public static double camZ() {
       return rm().viewerPosZ;
+   }
+
+   /**
+    * An entity's position as it is actually being <em>drawn</em> this frame.
+    *
+    * <p>{@code posX/Y/Z} only change on a tick -- 20 times a second -- but the
+    * camera ({@link #camX()}) and vanilla's own entity rendering both
+    * interpolate between the last tick and this one by {@code partialTicks}.
+    * Drawing an overlay at the raw tick position therefore pins it to a 20Hz
+    * grid while everything around it moves smoothly, which reads as the box
+    * snapping or teleporting. The faster the entity moves and the higher the
+    * frame rate, the worse it looks.
+    *
+    * <p>Uses {@code lastTickPos*} rather than {@code prevPos*} deliberately:
+    * that is the pair {@code RenderManager} itself interpolates, so an overlay
+    * built from these lands exactly on the model rather than near it.
+    */
+   public static double renderX(Entity e, float partialTicks) {
+      return e.lastTickPosX + (e.posX - e.lastTickPosX) * (double)partialTicks;
+   }
+
+   public static double renderY(Entity e, float partialTicks) {
+      return e.lastTickPosY + (e.posY - e.lastTickPosY) * (double)partialTicks;
+   }
+
+   public static double renderZ(Entity e, float partialTicks) {
+      return e.lastTickPosZ + (e.posZ - e.lastTickPosZ) * (double)partialTicks;
+   }
+
+   /**
+    * An entity's bounding box moved to its interpolated render position.
+    *
+    * <p>Offsets the real box rather than rebuilding one from width/height, so
+    * entities whose box is not a simple centred column keep their true shape.
+    */
+   public static AxisAlignedBB renderBox(Entity e, float partialTicks) {
+      return e.getEntityBoundingBox().offset(
+            renderX(e, partialTicks) - e.posX,
+            renderY(e, partialTicks) - e.posY,
+            renderZ(e, partialTicks) - e.posZ);
    }
 
    /**

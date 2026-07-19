@@ -71,14 +71,23 @@ public class ImprovedHitBoxes extends Module {
             continue;
          }
 
-         AxisAlignedBB box = e.getEntityBoundingBox().expand(grow, grow, grow);
+         // Everything below is positioned from the interpolated render
+         // position, not the tick position. The camera is interpolated, so
+         // mixing the two makes the box, tracer and label all judder against a
+         // player who is moving smoothly.
+         float pt = event.partialTicks;
+         double ix = WorldRenderUtil.renderX(e, pt);
+         double iy = WorldRenderUtil.renderY(e, pt);
+         double iz = WorldRenderUtil.renderZ(e, pt);
+
+         AxisAlignedBB box = WorldRenderUtil.renderBox(e, pt).expand(grow, grow, grow);
          // true == ignores depth, so it shows through terrain.
          WorldRenderUtil.outlineBox(box, col, w, true);
 
          if(this.tracer.get()) {
             WorldRenderUtil.drawLine(
                   WorldRenderUtil.camX(), WorldRenderUtil.camY() - 0.3D, WorldRenderUtil.camZ(),
-                  e.posX, e.posY + e.height / 2.0D, e.posZ,
+                  ix, iy + e.height / 2.0D, iz,
                   ColorUtil.withAlpha(col, 130), w);
          }
 
@@ -105,7 +114,7 @@ public class ImprovedHitBoxes extends Module {
             }
 
             if(sb.length() > 0) {
-               WorldRenderUtil.text3d(sb.toString(), e.posX, e.posY + (double)e.height + 0.4D, e.posZ, col, 0.025F);
+               WorldRenderUtil.text3d(sb.toString(), ix, iy + (double)e.height + 0.4D, iz, col, 0.025F);
             }
          }
       }

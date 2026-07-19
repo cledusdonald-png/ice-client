@@ -53,7 +53,9 @@ public class HitBoxes extends Module {
             continue;
          }
 
-         AxisAlignedBB box = e.getEntityBoundingBox().expand(grow, grow, grow);
+         // Interpolated, not e.getEntityBoundingBox(): the raw box only moves on
+         // a tick, so against a smoothly interpolated camera it visibly snaps.
+         AxisAlignedBB box = WorldRenderUtil.renderBox(e, event.partialTicks).expand(grow, grow, grow);
          // false == depth-tested, so terrain hides it.
          WorldRenderUtil.outlineBox(box, col, w, false);
       }
