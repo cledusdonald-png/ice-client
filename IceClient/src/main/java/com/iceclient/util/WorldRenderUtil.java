@@ -315,6 +315,27 @@ public final class WorldRenderUtil {
     * line loop so it reads as an ellipse from any angle -- the ground marker
     * under a rally point.
     */
+   /**
+    * A flat square outline, axis-aligned with the block grid.
+    *
+    * <p>Not {@code horizontalCircle} with four segments: that starts at angle 0
+    * so its corners land on the axes, giving a diamond. A marker meant to read
+    * as a square has to have its *edges* on the axes, which means corners at 45
+    * degrees -- easier to state directly than to phase-shift the circle.
+    */
+   public static void horizontalSquare(double x, double y, double z, double half,
+                                       int color, float lineWidth) {
+      beginWorld(lineWidth);
+      applyColor(color);
+      GL11.glBegin(GL11.GL_LINE_LOOP);
+      GL11.glVertex3d(x - half, y, z - half);
+      GL11.glVertex3d(x + half, y, z - half);
+      GL11.glVertex3d(x + half, y, z + half);
+      GL11.glVertex3d(x - half, y, z + half);
+      GL11.glEnd();
+      endWorld();
+   }
+
    public static void horizontalCircle(double x, double y, double z, double radius,
                                        int color, float lineWidth, int segments) {
       beginWorld(lineWidth);

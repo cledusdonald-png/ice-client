@@ -6,6 +6,8 @@ import com.iceclient.setting.BooleanSetting;
 import com.iceclient.util.ColorUtil;
 import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.inventory.GuiContainer;
+import net.minecraft.client.renderer.GlStateManager;
+import net.minecraft.client.renderer.RenderHelper;
 import net.minecraft.inventory.Slot;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.EnumChatFormatting;
@@ -42,6 +44,17 @@ public class Minecadia extends Module {
       int left = this.intField(gui, "guiLeft", "field_147003_i");
       int top = this.intField(gui, "guiTop", "field_147009_r");
 
+      // GuiContainer draws item icons at z=200 with GUI item lighting still on.
+      // Drawing the label at the default z=0 puts it *behind* the icon, which is
+      // why these tags looked like they simply did not work -- they were being
+      // rendered, just underneath the item they label.
+      GlStateManager.pushMatrix();
+      GlStateManager.translate(0.0F, 0.0F, 300.0F);
+      GlStateManager.disableDepth();
+      GlStateManager.disableLighting();
+      RenderHelper.disableStandardItemLighting();
+      GlStateManager.enableBlend();
+
       for(Slot slot : gui.inventorySlots.inventorySlots) {
          ItemStack stack = slot.getStack();
          if(stack == null) {
@@ -59,6 +72,9 @@ public class Minecadia extends Module {
          this.mc.fontRendererObj.drawStringWithShadow(label, (float)(x + 1), (float)(y + 1), -1);
       }
 
+      GlStateManager.disableBlend();
+      GlStateManager.enableDepth();
+      GlStateManager.popMatrix();
    }
 
    /**

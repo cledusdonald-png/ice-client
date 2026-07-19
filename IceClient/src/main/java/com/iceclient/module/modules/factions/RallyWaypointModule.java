@@ -80,6 +80,7 @@ public class RallyWaypointModule extends Module {
    private final BooleanSetting announce = (BooleanSetting)this.addSetting(new BooleanSetting("Announce in chat", true));
    // Ground marker: the white ring + centre dot that sits at the rally spot.
    private final BooleanSetting ring = (BooleanSetting)this.addSetting(new BooleanSetting("Ground ring", true));
+   private final ModeSetting ringShape = (ModeSetting)this.addSetting(new ModeSetting("Ring shape", "Circle", new String[]{"Circle", "Square"}));
    private final NumberSetting ringRadius = (NumberSetting)this.addSetting(new NumberSetting("Ring radius", 1.5D, 0.5D, 8.0D, 0.5D));
    private final NumberSetting ringWidth = (NumberSetting)this.addSetting(new NumberSetting("Ring width", 2.0D, 1.0D, 5.0D, 0.5D));
    private final BooleanSetting centreDot = (BooleanSetting)this.addSetting(new BooleanSetting("Centre dot", true));
@@ -184,8 +185,18 @@ public class RallyWaypointModule extends Module {
          // they take absolute world coords rather than the cam-relative ones
          // the beam/label below use.
          if(this.ring.get()) {
-            WorldRenderUtil.horizontalCircle((double)this.rx + 0.5D, (double)this.ry + 0.05D, (double)this.rz + 0.5D,
-                  this.ringRadius.get(), -1, (float)this.ringWidth.get(), 48);
+            double cxr = (double)this.rx + 0.5D;
+            double cyr = (double)this.ry + 0.05D;
+            double czr = (double)this.rz + 0.5D;
+            double r = this.ringRadius.get();
+
+            if(this.ringShape.is("Square")) {
+               WorldRenderUtil.horizontalSquare(cxr, cyr, czr, r, -1,
+                     (float)this.ringWidth.get());
+            } else {
+               WorldRenderUtil.horizontalCircle(cxr, cyr, czr, r, -1,
+                     (float)this.ringWidth.get(), 48);
+            }
          }
 
          if(this.centreDot.get()) {

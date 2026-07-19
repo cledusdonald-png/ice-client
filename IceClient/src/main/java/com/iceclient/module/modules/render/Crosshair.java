@@ -22,9 +22,38 @@ public class Crosshair extends Module {
    private final BooleanSetting dot = (BooleanSetting)this.addSetting(new BooleanSetting("Center dot", false));
    private final BooleanSetting chroma = (BooleanSetting)this.addSetting(new BooleanSetting("Chroma", false));
    private final ColorSetting color = (ColorSetting)this.addSetting(new ColorSetting("Color", -1));
+   /**
+    * Manual nudge, in GUI pixels, for anyone whose GUI scale still lands the
+    * crosshair a hair off -- or who wants it deliberately offset. Half-steps
+    * because the whole point is sub-pixel placement.
+    */
+   private final NumberSetting offsetX = (NumberSetting)this.addSetting(new NumberSetting("Offset X", 0.0D, -5.0D, 5.0D, 0.5D));
+   private final NumberSetting offsetY = (NumberSetting)this.addSetting(new NumberSetting("Offset Y", 0.0D, -5.0D, 5.0D, 0.5D));
 
    public Crosshair() {
       super("Crosshair", "Custom crosshair", ModuleCategory.MECHANIC);
+   }
+
+   /**
+    * Float-precision filled rect.
+    *
+    * <p>{@link Gui#drawRect} takes ints, which is what forced the crosshair onto
+    * whole-pixel boundaries in the first place.
+    */
+   private static void rect(float left, float top, float right, float bottom, int color) {
+      float a = (float)(color >> 24 & 255) / 255.0F;
+      float r = (float)(color >> 16 & 255) / 255.0F;
+      float g = (float)(color >> 8 & 255) / 255.0F;
+      float b = (float)(color & 255) / 255.0F;
+
+      GlStateManager.color(r, g, b, a <= 0.0F ? 1.0F : a);
+      org.lwjgl.opengl.GL11.glBegin(org.lwjgl.opengl.GL11.GL_QUADS);
+      org.lwjgl.opengl.GL11.glVertex2f(left, bottom);
+      org.lwjgl.opengl.GL11.glVertex2f(right, bottom);
+      org.lwjgl.opengl.GL11.glVertex2f(right, top);
+      org.lwjgl.opengl.GL11.glVertex2f(left, top);
+      org.lwjgl.opengl.GL11.glEnd();
+      GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
    }
 
    /**
@@ -53,34 +82,41 @@ public class Crosshair extends Module {
       // The event carries the resolution already scaled for this frame; building
       // our own can disagree with the active matrix.
       ScaledResolution res = event.resolution;
-      int cx = res.getScaledWidth() / 2;
-      int cy = res.getScaledHeight() / 2;
-      int len = (int)this.size.get();
-      int th = (int)this.thickness.get();
-      int g = (int)this.gap.get();
+
+      // Float centre, not scaledWidth/2. Integer coordinates address pixel
+      // *corners*, so an integer-aligned bar of odd thickness is always half a
+      // pixel off true centre -- which at GUI scale 3 is three real pixels and
+      // is exactly the "slightly off" you can see. Working in floats lets the
+      // bar straddle the centre line properly.
+      float cx = (float)res.getScaledWidth() / 2.0F;
+      float cy = (float)res.getScaledHeight() / 2.0F;
+
+      float len = (float)this.size.get();
+      float th = (float)this.thickness.get();
+      float g = (float)this.gap.get();
+      float half = th / 2.0F;
       int col = this.chroma.get() ? ColorUtil.withAlpha(ColorUtil.chroma(0), 255) : this.color.getRGB();
 
-      // Integer division was the bug: with thickness 1, `th / 2` is 0, so every
-      // arm sat one pixel off-centre and the whole crosshair looked lopsided.
-      // Work out the two edges separately so odd thicknesses straddle the centre
-      // evenly instead of rounding the same way twice.
-      int lo = th / 2;
-      int hi = th - lo;
+      cx += (float)this.offsetX.get();
+      cy += (float)this.offsetY.get();
 
       GlStateManager.pushMatrix();
       GlStateManager.enableBlend();
       GlStateManager.disableLighting();
+      GlStateManager.disableTexture2D();
       GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
 
       // Four arms, offset from centre by the gap.
-      Gui.drawRect(cx - g - len, cy - lo, cx - g, cy + hi, col);
-      Gui.drawRect(cx + g, cy - lo, cx + g + len, cy + hi, col);
-      Gui.drawRect(cx - lo, cy - g - len, cx + hi, cy - g, col);
-      Gui.drawRect(cx - lo, cy + g, cx + hi, cy + g + len, col);
+      rect(cx - g - len, cy - half, cx - g, cy + half, col);
+      rect(cx + g, cy - half, cx + g + len, cy + half, col);
+      rect(cx - half, cy - g - len, cx + half, cy - g, col);
+      rect(cx - half, cy + g, cx + half, cy + g + len, col);
 
       if(this.dot.get()) {
-         Gui.drawRect(cx - lo, cy - lo, cx + hi, cy + hi, col);
+         rect(cx - half, cy - half, cx + half, cy + half, col);
       }
+
+      GlStateManager.enableTexture2D();
 
       // Leave the overlay pipeline exactly as we found it -- the elements drawn
       // after this one inherit whatever state we leave behind.
