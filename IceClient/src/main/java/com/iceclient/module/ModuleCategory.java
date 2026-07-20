@@ -4,7 +4,7 @@ public enum ModuleCategory {
    HUD("HUD"),
    COMBAT("Combat"),
    FACTIONS("Factions"),
-   PRINTER("Printer"),
+   PRINTER("Schematic"),
    MECHANIC("Mechanic"),
    GENERAL("General"),
    PVP("PvP"),
@@ -19,7 +19,7 @@ public enum ModuleCategory {
     * behind an unlock prompt, so listing it here would show its modules on the
     * ordinary grid and defeat the point.
     */
-   public static final ModuleCategory[] TABS = new ModuleCategory[]{HUD, COMBAT, FACTIONS, PRINTER, MECHANIC};
+   public static final ModuleCategory[] TABS = new ModuleCategory[]{HUD, COMBAT, FACTIONS, PRINTER, MECHANIC, GENERAL};
 
    private ModuleCategory(String label) {
       this.label = label;

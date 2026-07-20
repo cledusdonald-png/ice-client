@@ -106,6 +106,21 @@ public final class SchematicaBridge {
       }
    }
 
+   /**
+    * Rebuilds the ghost render so blocks you have just placed stop drawing.
+    *
+    * <p>Schematica only re-renders the hologram on its own block-change events,
+    * and a printer placing quickly outruns those -- so the blue ghost of a
+    * finished block lingers until something else refreshes it, which is the "I
+    * have to toggle render off and on" complaint. The printer calls this after
+    * a batch of placements so they clear on their own.
+    */
+   public static void refreshRender() {
+      if(ClientProxy.schematic != null) {
+         RenderSchematic.INSTANCE.refresh();
+      }
+   }
+
    public static void nudge(int dx, int dy, int dz) {
       SchematicWorld s = ClientProxy.schematic;
       if(s != null) {

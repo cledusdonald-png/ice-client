@@ -82,6 +82,7 @@ public class Printer extends Module {
    private final BooleanSetting slot8 = this.addBool("Slot 8", true);
    private final BooleanSetting slot9 = this.addBool("Slot 9", true);
    private int autoTickCooldown;
+   private int refreshCooldown;
    private final PrintEngine engine = new PrintEngine();
 
    /** Snapshots the settings the engine needs into its plain config object. */
@@ -203,7 +204,16 @@ public class Printer extends Module {
                   }
 
                   if(this.mc.currentScreen == null) {
-                     this.engine.tick(this.buildConfig());
+                     int placed = this.engine.tick(this.buildConfig());
+
+                     // Clear the ghosts of blocks we just placed. Throttled to
+                     // a few times a second: refresh() rebuilds the whole
+                     // hologram, so doing it every placement would cost more
+                     // than the lingering ghosts it removes.
+                     if(placed > 0 && ++this.refreshCooldown >= 4) {
+                        this.refreshCooldown = 0;
+                        SchematicaBridge.refreshRender();
+                     }
                   }
                } else {
                   SchematicaBridge.applyPrinterScalars(this.placeDistance.getInt(), this.placeInstantly.get(), this.placeDelay.getInt(), this.timeout.getInt(), this.placeAdjacent.get(), this.clearExtra.get(), this.clearInstantly.get());
