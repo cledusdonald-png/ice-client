@@ -206,6 +206,9 @@ public class ModuleManager {
       tag(register(new CannonReplay()), ModuleCategory.FACTIONS, (String)null);
       tag(register(new EasyPlace()), ModuleCategory.PRINTER, "Printer");
       tag(register(new SchemTransform()), ModuleCategory.PRINTER, "Printer");
+      tag(register(new com.iceclient.module.modules.schematic.SchemKeybinds()), ModuleCategory.PRINTER, "Printer");
+      tag(register(new com.iceclient.module.modules.schematic.AutoYLevel()), ModuleCategory.PRINTER, "Printer");
+      tag(register(new com.iceclient.module.modules.schematic.KeepFly()), ModuleCategory.PRINTER, "Printer");
       tag(register(new SelectionTool()), ModuleCategory.PRINTER, "Printer");
       tag(register(new PingBlock()), ModuleCategory.FACTIONS, "Groups");
       tag(register(new ChunkPing()), ModuleCategory.FACTIONS, "Groups");

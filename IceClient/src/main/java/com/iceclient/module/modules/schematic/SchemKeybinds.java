@@ -38,6 +38,9 @@ public class SchemKeybinds extends Module {
    public final KeybindSetting keybindMoveRight = this.addKeybind("Move Right", 0);
    public final KeybindSetting keybindMoveUp = this.addKeybind("Move Up", 0);
    public final KeybindSetting keybindMoveDown = this.addKeybind("Move Down", 0);
+   public final KeybindSetting keybindRotate = this.addKeybind("Rotate Schematic", 0);
+   public final KeybindSetting keybindShare = this.addKeybind("Share Schematic", 0);
+   public final KeybindSetting keybindLoadShared = this.addKeybind("Load Latest Shared", 0);
    public final NumberSetting moveStep = this.addNumber("Move Step", 1.0D, 1.0D, 16.0D, 1.0D);
    public final BooleanSetting showEnabled = this.addBool("Show Enabled", true);
    private boolean layersOn;
@@ -95,6 +98,13 @@ public class SchemKeybinds extends Module {
                this.nudge(0, (int)this.moveStep.get(), 0);
             } else if(this.match(key, this.keybindMoveDown)) {
                this.nudge(0, -(int)this.moveStep.get(), 0);
+            } else if(this.match(key, this.keybindRotate)) {
+               this.msg(com.iceclient.schematica.SchematicaBridge.rotate(true)
+                     ? "Rotated schematic" : "Rotate failed -- load a schematic first");
+            } else if(this.match(key, this.keybindShare)) {
+               this.sharePlacement();
+            } else if(this.match(key, this.keybindLoadShared)) {
+               this.loadShared();
             }
 
          }
@@ -150,6 +160,76 @@ public class SchemKeybinds extends Module {
          SchematicRenderer.invalidate();
          this.msg("Layer Y=" + s.getOrigin().getY());
       }
+   }
+
+   /**
+    * Copies the loaded schematic's placement to the clipboard as
+    * {@code schem:<name>@x,y,z} -- the same format {@code SchemTransform} uses,
+    * so a placement shared from either lands in the other.
+    */
+   private void sharePlacement() {
+      if(!com.iceclient.schematica.SchematicaBridge.hasSchematic()) {
+         this.msg("No schematic loaded");
+         return;
+      }
+
+      int[] p = com.iceclient.schematica.SchematicaBridge.position();
+      if(p == null) {
+         return;
+      }
+
+      String descriptor = "schem:" + com.iceclient.schematica.SchematicaBridge.name()
+            + "@" + p[0] + "," + p[1] + "," + p[2];
+
+      try {
+         java.awt.Toolkit.getDefaultToolkit().getSystemClipboard()
+               .setContents(new java.awt.datatransfer.StringSelection(descriptor), null);
+         this.msg("Placement copied to clipboard");
+      } catch (Throwable t) {
+         this.msg("Clipboard unavailable");
+      }
+
+   }
+
+   /** Moves the loaded schematic to a placement copied to the clipboard. */
+   private void loadShared() {
+      int[] cur = com.iceclient.schematica.SchematicaBridge.position();
+      if(cur == null) {
+         this.msg("Load a schematic first");
+         return;
+      }
+
+      String text = null;
+      try {
+         java.awt.datatransfer.Transferable t =
+               java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().getContents(null);
+         if(t != null && t.isDataFlavorSupported(java.awt.datatransfer.DataFlavor.stringFlavor)) {
+            text = (String)t.getTransferData(java.awt.datatransfer.DataFlavor.stringFlavor);
+         }
+      } catch (Throwable ignored) {
+      }
+
+      if(text == null || !text.startsWith("schem:") || text.lastIndexOf(64) < 0) {
+         this.msg("No shared placement on clipboard");
+         return;
+      }
+
+      String[] parts = text.substring(text.lastIndexOf(64) + 1).split(",");
+      if(parts.length != 3) {
+         this.msg("Malformed placement");
+         return;
+      }
+
+      try {
+         int tx = Integer.parseInt(parts[0].trim());
+         int ty = Integer.parseInt(parts[1].trim());
+         int tz = Integer.parseInt(parts[2].trim());
+         com.iceclient.schematica.SchematicaBridge.nudge(tx - cur[0], ty - cur[1], tz - cur[2]);
+         this.msg("Moved to " + tx + ", " + ty + ", " + tz);
+      } catch (NumberFormatException e) {
+         this.msg("Malformed placement");
+      }
+
    }
 
    private boolean match(int key, KeybindSetting bind) {

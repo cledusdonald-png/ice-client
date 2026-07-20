@@ -23,23 +23,37 @@ public class AutoYLevel extends Module {
 
    @SubscribeEvent
    public void onTick(ClientTickEvent event) {
-      if(this.isEnabled() && event.phase == Phase.END) {
-         if(this.mc.thePlayer != null && SchematicManager.isLoaded()) {
-            Schematic s = SchematicManager.getLoaded();
-            BlockPos o = s.getOrigin();
-            int targetY = this.yLevel.getInt();
-            if(this.doOnSchemMove.get() && this.mc.thePlayer != null) {
-               targetY = (int)Math.floor(this.mc.thePlayer.posY);
-            }
+      if(!this.isEnabled() || event.phase != Phase.END || this.mc.thePlayer == null) {
+         return;
+      }
 
-            if(o.getY() != targetY || !o.equals(this.lastOrigin)) {
-               this.lastOrigin = o;
-               if(o.getY() != targetY) {
-                  s.setOrigin(new BlockPos(o.getX(), targetY, o.getZ()));
-                  SchematicRenderer.invalidate();
-               }
+      // Follow the player's own Y when "Do On Schem Move" is on, otherwise pin
+      // to the fixed level. Following is what you want while flying up a cannon
+      // stack; the fixed level is for a wall you keep re-placing at one height.
+      int targetY = this.doOnSchemMove.get()
+            ? (int)Math.floor(this.mc.thePlayer.posY)
+            : this.yLevel.getInt();
 
-            }
+      // Drive Schematica when it is present -- it is the schematic actually on
+      // screen. Moving only Ice's own SchematicManager would leave the visible
+      // schematic where it was, which reads as the module doing nothing.
+      if(com.iceclient.schematica.SchematicaBridge.isAvailable()
+            && com.iceclient.schematica.SchematicaBridge.hasSchematic()) {
+         int[] pos = com.iceclient.schematica.SchematicaBridge.position();
+         if(pos != null && pos[1] != targetY) {
+            com.iceclient.schematica.SchematicaBridge.nudge(0, targetY - pos[1], 0);
+         }
+
+         return;
+      }
+
+      if(SchematicManager.isLoaded()) {
+         Schematic s = SchematicManager.getLoaded();
+         BlockPos o = s.getOrigin();
+         if(o.getY() != targetY) {
+            s.setOrigin(new BlockPos(o.getX(), targetY, o.getZ()));
+            SchematicRenderer.invalidate();
+            this.lastOrigin = s.getOrigin();
          }
       }
    }
