@@ -14,7 +14,13 @@ import net.minecraftforge.fml.common.gameevent.TickEvent.Phase;
 
 public class AutoYLevel extends Module {
    public final NumberSetting yLevel = this.addNumber("Y Level", 64.0D, 0.0D, 256.0D, 1.0D);
-   public final BooleanSetting doOnSchemMove = this.addBool("Do On Schem Move", true);
+   /**
+    * Off by default. When on, the schematic tracks your own Y as you fly, which
+    * is a niche mode -- and a surprising one, because moving down drags the
+    * schematic down with you. The normal behaviour is to pin it to the fixed
+    * "Y Level" above and leave it there.
+    */
+   public final BooleanSetting doOnSchemMove = this.addBool("Follow My Y Level", false);
    private BlockPos lastOrigin = BlockPos.ORIGIN;
 
    public AutoYLevel() {

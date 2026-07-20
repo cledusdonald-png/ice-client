@@ -1156,6 +1156,15 @@ public class ClickGuiScreen extends GuiScreen {
          return;
       }
 
+      // Arrow keys nudge the loaded schematic while the Schematic page is open,
+      // so you can shove it into place without hunting for the -X/+X buttons.
+      // Arrows stay in the horizontal plane (up/down = north/south), never Y --
+      // that is what stops "down" from dropping the schematic through the floor.
+      // R/F rotate and flip. Shift is the 5-block step, matching the buttons.
+      if(this.view == ClickGuiScreen.View.SCHEMATIC && this.handleSchematicKey(keyCode)) {
+         return;
+      }
+
       // Typing a macro command.
       if(this.macroInputFocused) {
          if(keyCode == 28 || keyCode == 156) {
@@ -1405,7 +1414,8 @@ public class ClickGuiScreen extends GuiScreen {
       this.fontRendererObj.drawStringWithShadow(posText, (float)this.contentX,
             (float)(this.contentY + this.contentH - 30), -8088413);
 
-      this.fontRendererObj.drawStringWithShadow("Nudge step: hold Shift for 5",
+      this.fontRendererObj.drawStringWithShadow(
+            "Arrows move  ·  PgUp/PgDn = Y  ·  R rotate  ·  F flip  ·  Shift = 5",
             (float)this.contentX, (float)(this.contentY + this.contentH - 18), -10461088);
 
       if(!this.schemStatus.isEmpty()) {
@@ -1785,6 +1795,49 @@ public class ClickGuiScreen extends GuiScreen {
          this.schemStatus = "Not a number.";
       }
 
+   }
+
+   /**
+    * Arrow-key / R / F control of the loaded schematic.
+    *
+    * @return true when the key was one we handled, so keyTyped stops there
+    */
+   private boolean handleSchematicKey(int keyCode) {
+      if(!SchematicaBridge.isAvailable() || !SchematicaBridge.hasSchematic()) {
+         return false;
+      }
+
+      int step = isShiftKeyDown() ? 5 : 1;
+
+      switch(keyCode) {
+      case 203: // left arrow
+         SchematicaBridge.nudge(-step, 0, 0);
+         return true;
+      case 205: // right arrow
+         SchematicaBridge.nudge(step, 0, 0);
+         return true;
+      case 200: // up arrow -> north (-Z), horizontal only
+         SchematicaBridge.nudge(0, 0, -step);
+         return true;
+      case 208: // down arrow -> south (+Z), never Y
+         SchematicaBridge.nudge(0, 0, step);
+         return true;
+      case 201: // page up -> raise
+         SchematicaBridge.nudge(0, step, 0);
+         return true;
+      case 209: // page down -> lower
+         SchematicaBridge.nudge(0, -step, 0);
+         return true;
+      case 19:  // R -> rotate clockwise
+         this.schemStatus = SchematicaBridge.rotate(true) ? "Rotated CW" : "Rotate failed";
+         return true;
+      case 33:  // F -> flip on X
+         this.schemStatus = SchematicaBridge.flip(net.minecraft.util.EnumFacing.EAST)
+               ? "Flipped X" : "Flip failed";
+         return true;
+      default:
+         return false;
+      }
    }
 
    private void setPointToPlayer(boolean isA) {
