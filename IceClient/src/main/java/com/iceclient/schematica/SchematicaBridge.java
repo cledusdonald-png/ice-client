@@ -115,6 +115,17 @@ public final class SchematicaBridge {
     * have to toggle render off and on" complaint. The printer calls this after
     * a batch of placements so they clear on their own.
     */
+   /**
+    * A token that changes whenever a different schematic is loaded.
+    *
+    * <p>Loading a schematic replaces the underlying object, so its identity hash
+    * changes -- which lets a caller act once per load (level it to the player's
+    * Y, say) instead of every tick. 0 means nothing is loaded.
+    */
+   public static int schematicToken() {
+      return ClientProxy.schematic == null ? 0 : System.identityHashCode(ClientProxy.schematic);
+   }
+
    public static void refreshRender() {
       if(ClientProxy.schematic != null) {
          RenderSchematic.INSTANCE.refresh();

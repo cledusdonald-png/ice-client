@@ -5,6 +5,7 @@ import com.iceclient.module.ModuleCategory;
 import com.iceclient.schematic.Schematic;
 import com.iceclient.schematic.SchematicManager;
 import com.iceclient.schematic.SchematicRenderer;
+import com.iceclient.schematica.SchematicaBridge;
 import com.iceclient.setting.BooleanSetting;
 import com.iceclient.setting.NumberSetting;
 import net.minecraft.util.BlockPos;
@@ -12,19 +13,40 @@ import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent.ClientTickEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent.Phase;
 
+/**
+ * Sets a freshly loaded schematic's height, once, when it loads.
+ *
+ * <p>The earlier version forced the Y <em>every tick</em>, which is what made it
+ * feel broken from both directions: with follow-player on it dragged the
+ * schematic down as you flew, and with it off it yanked every schematic to a
+ * fixed 64 the moment you loaded. Neither is useful.
+ *
+ * <p>It now acts exactly once per load. Loading a schematic gives it a new
+ * identity token, and when that token changes this drops the schematic to your
+ * current Y (or the fixed level, if you prefer that) and then leaves it alone --
+ * so you can fly around, nudge it, Move Here, without it fighting you.
+ */
 public class AutoYLevel extends Module {
+
    public final NumberSetting yLevel = this.addNumber("Y Level", 64.0D, 0.0D, 256.0D, 1.0D);
    /**
-    * Off by default. When on, the schematic tracks your own Y as you fly, which
-    * is a niche mode -- and a surprising one, because moving down drags the
-    * schematic down with you. The normal behaviour is to pin it to the fixed
-    * "Y Level" above and leave it there.
+    * Level a newly loaded schematic to your own Y instead of the fixed level
+    * above. On by default, because "put it where I'm standing" is what you want
+    * almost every time.
     */
-   public final BooleanSetting doOnSchemMove = this.addBool("Follow My Y Level", false);
-   private BlockPos lastOrigin = BlockPos.ORIGIN;
+   public final BooleanSetting useMyY = this.addBool("Use My Y On Load", true);
+
+   /** Identity of the schematic we last levelled, so we do it once per load. */
+   private int lastToken;
 
    public AutoYLevel() {
-      super("Auto Y Level", "Pins the schematic base to a Y level", ModuleCategory.FACTIONS);
+      super("Auto Y Level", "Levels a schematic to your Y when it loads", ModuleCategory.PRINTER);
+   }
+
+   protected void onEnable() {
+      // Re-level whatever is already loaded the moment the module is switched
+      // on, rather than waiting for the next load.
+      this.lastToken = 0;
    }
 
    @SubscribeEvent
@@ -33,33 +55,41 @@ public class AutoYLevel extends Module {
          return;
       }
 
-      // Follow the player's own Y when "Do On Schem Move" is on, otherwise pin
-      // to the fixed level. Following is what you want while flying up a cannon
-      // stack; the fixed level is for a wall you keep re-placing at one height.
-      int targetY = this.doOnSchemMove.get()
-            ? (int)Math.floor(this.mc.thePlayer.posY)
-            : this.yLevel.getInt();
+      if(SchematicaBridge.isAvailable() && SchematicaBridge.hasSchematic()) {
+         int token = SchematicaBridge.schematicToken();
+         if(token == 0 || token == this.lastToken) {
+            return; // same schematic -- already levelled, leave it be
+         }
 
-      // Drive Schematica when it is present -- it is the schematic actually on
-      // screen. Moving only Ice's own SchematicManager would leave the visible
-      // schematic where it was, which reads as the module doing nothing.
-      if(com.iceclient.schematica.SchematicaBridge.isAvailable()
-            && com.iceclient.schematica.SchematicaBridge.hasSchematic()) {
-         int[] pos = com.iceclient.schematica.SchematicaBridge.position();
+         this.lastToken = token;
+
+         int targetY = this.useMyY.get()
+               ? (int)Math.floor(this.mc.thePlayer.posY)
+               : this.yLevel.getInt();
+
+         int[] pos = SchematicaBridge.position();
          if(pos != null && pos[1] != targetY) {
-            com.iceclient.schematica.SchematicaBridge.nudge(0, targetY - pos[1], 0);
+            SchematicaBridge.nudge(0, targetY - pos[1], 0);
          }
 
          return;
       }
 
+      // Ice's own SchematicManager, used only when Schematica is absent.
       if(SchematicManager.isLoaded()) {
+         int token = System.identityHashCode(SchematicManager.getLoaded());
+         if(token == this.lastToken) {
+            return;
+         }
+
+         this.lastToken = token;
+
          Schematic s = SchematicManager.getLoaded();
          BlockPos o = s.getOrigin();
+         int targetY = this.useMyY.get() ? (int)Math.floor(this.mc.thePlayer.posY) : this.yLevel.getInt();
          if(o.getY() != targetY) {
             s.setOrigin(new BlockPos(o.getX(), targetY, o.getZ()));
             SchematicRenderer.invalidate();
-            this.lastOrigin = s.getOrigin();
          }
       }
    }
