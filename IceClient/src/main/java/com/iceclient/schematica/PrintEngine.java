@@ -102,12 +102,15 @@ public final class PrintEngine {
    }
 
    /**
-    * Collects positions that still need work, nearest first.
+    * Collects positions that still need work, lowest first.
     *
-    * <p>Nearest-first matters for more than tidiness: reach is the binding
-    * constraint, so working outward from the player finishes everything
-    * reachable before moving on, instead of skipping around and leaving holes
-    * behind that need another pass.
+    * <p>Bottom-to-top is the correct order, not nearest-first: a block needs
+    * something under or beside it to place against, so filling a layer before
+    * the one above it means every block has support by the time its turn comes.
+    * Sorting by distance instead left the top of a wall failing to place until a
+    * later pass happened to fill the gap beneath it. Distance is only the
+    * tiebreaker within a layer, so the nearest reachable block on each level
+    * still goes first.
     */
    private void rebuild(Config cfg, BlockPos center) {
       this.queue.clear();
@@ -146,6 +149,10 @@ public final class PrintEngine {
       final BlockPos eye = center;
       Collections.sort(found, new Comparator<BlockPos>() {
          public int compare(BlockPos a, BlockPos b) {
+            if(a.getY() != b.getY()) {
+               return Integer.compare(a.getY(), b.getY());
+            }
+
             return Double.compare(a.distanceSq(eye), b.distanceSq(eye));
          }
       });
@@ -200,24 +207,40 @@ public final class PrintEngine {
          }
       }
 
-      EnumFacing face = this.findSupport(mc, cfg, pos);
-      if(face == null) {
+      Placement placement = this.resolvePlacement(mc, cfg, pos, want);
+      if(placement == null) {
          return false;
       }
 
       int previous = mc.thePlayer.inventory.currentItem;
       mc.thePlayer.inventory.currentItem = slot;
 
-      BlockPos against = pos.offset(face);
-      EnumFacing clickFace = face.getOpposite();
-      Vec3 hit = new Vec3(
-            (double)against.getX() + 0.5D + (double)clickFace.getFrontOffsetX() * 0.5D,
-            (double)against.getY() + 0.5D + (double)clickFace.getFrontOffsetY() * 0.5D,
-            (double)against.getZ() + 0.5D + (double)clickFace.getFrontOffsetZ() * 0.5D);
+      float savedYaw = mc.thePlayer.rotationYaw;
+      float savedPitch = mc.thePlayer.rotationPitch;
+
+      if(placement.rotate) {
+         // The server computes a directional block's state from the player's
+         // rotation as *it* knows it, so a look packet has to actually go out --
+         // setting the field alone only fixes the client-side ghost. The view
+         // is restored below within the same tick, so nothing renders between
+         // the two and the head does not visibly snap.
+         mc.thePlayer.rotationYaw = placement.yaw;
+         mc.thePlayer.rotationPitch = placement.pitch;
+         if(mc.getNetHandler() != null) {
+            mc.getNetHandler().addToSendQueue(
+                  new net.minecraft.network.play.client.C03PacketPlayer.C05PacketPlayerLook(
+                        placement.yaw, placement.pitch, mc.thePlayer.onGround));
+         }
+      }
 
       mc.playerController.onPlayerRightClick(mc.thePlayer, mc.theWorld,
-            mc.thePlayer.getHeldItem(), against, clickFace, hit);
+            mc.thePlayer.getHeldItem(), placement.against, placement.clickFace, placement.hit);
       mc.thePlayer.swingItem();
+
+      if(placement.rotate) {
+         mc.thePlayer.rotationYaw = savedYaw;
+         mc.thePlayer.rotationPitch = savedPitch;
+      }
 
       // Restoring the slot keeps the printer from stealing the hotbar between
       // placements, which otherwise makes fighting mid-print impossible.
@@ -228,26 +251,159 @@ public final class PrintEngine {
       return true;
    }
 
+   /** A resolved click: what to click, where, and how to be facing. */
+   private static final class Placement {
+      final BlockPos against;
+      final EnumFacing clickFace;
+      final Vec3 hit;
+      final boolean rotate;
+      final float yaw;
+      final float pitch;
+
+      Placement(BlockPos against, EnumFacing clickFace, Vec3 hit, boolean rotate, float yaw, float pitch) {
+         this.against = against;
+         this.clickFace = clickFace;
+         this.hit = hit;
+         this.rotate = rotate;
+         this.yaw = yaw;
+         this.pitch = pitch;
+      }
+   }
+
+   private static final float[] YAWS = new float[]{0.0F, 90.0F, 180.0F, 270.0F};
+   private static final float[] PITCHES = new float[]{0.0F, 80.0F, -80.0F};
+   private static final float[] HIT_Y = new float[]{0.3F, 0.7F};
+
    /**
-    * A face of {@code pos} with a solid neighbour to click against.
+    * Works out how to place {@code pos} so the block lands in the schematic's
+    * orientation.
     *
-    * <p>Vanilla placement is always "right-click an existing block", so a
-    * position floating in air cannot be filled at all. With
-    * {@code placeAdjacent} off we only accept a neighbour that is genuinely
-    * solid; with it on, any non-air neighbour will do, which places faster but
-    * fails more often on servers that verify the click target.
+    * <p>For a plain block any solid neighbour will do. For a directional one --
+    * stairs, a piston, a repeater -- the state depends on which face is clicked,
+    * where on it, and which way the player faces. Rather than hardcode each
+    * block's rules (they disagree: stairs face your look, a furnace faces you),
+    * this asks vanilla: for each candidate click and rotation it runs the real
+    * {@code onBlockPlaced} and keeps the first whose result matches the target.
+    * Vanilla's own code is the source of truth, so no per-block table can drift
+    * out of date.
     */
-   private EnumFacing findSupport(Minecraft mc, Config cfg, BlockPos pos) {
+   private Placement resolvePlacement(Minecraft mc, Config cfg, BlockPos pos, IBlockState want) {
+      List<EnumFacing> faces = new ArrayList<EnumFacing>(6);
       for(EnumFacing f : EnumFacing.values()) {
-         BlockPos n = pos.offset(f);
-         Block b = mc.theWorld.getBlockState(n).getBlock();
-
-         if(b == Blocks.air) {
-            continue;
+         Block b = mc.theWorld.getBlockState(pos.offset(f)).getBlock();
+         if(b != Blocks.air && (cfg.placeAdjacent || b.getMaterial().isSolid())) {
+            faces.add(f);
          }
+      }
 
-         if(cfg.placeAdjacent || b.getMaterial().isSolid()) {
-            return f;
+      if(faces.isEmpty()) {
+         return null;
+      }
+
+      boolean directional = cfg.faceBlocks && isDirectional(want);
+
+      if(!directional) {
+         EnumFacing f = faces.get(0);
+         EnumFacing click = f.getOpposite();
+         return new Placement(pos.offset(f), click, faceCenter(pos.offset(f), click), false, 0.0F, 0.0F);
+      }
+
+      int meta = mc.thePlayer.getHeldItem() != null ? mc.thePlayer.getHeldItem().getMetadata() : 0;
+      Block block = want.getBlock();
+
+      for(EnumFacing f : faces) {
+         BlockPos against = pos.offset(f);
+         EnumFacing click = f.getOpposite();
+
+         for(float yaw : YAWS) {
+            for(float pitch : PITCHES) {
+               for(float hy : HIT_Y) {
+                  // Hit point on the clicked face, with the vertical nudged for
+                  // half control on side faces.
+                  Vec3 hit = new Vec3(
+                        (double)against.getX() + 0.5D + (double)click.getFrontOffsetX() * 0.5D,
+                        click.getAxis() == EnumFacing.Axis.Y
+                              ? (double)against.getY() + 0.5D + (double)click.getFrontOffsetY() * 0.5D
+                              : (double)against.getY() + (double)hy,
+                        (double)against.getZ() + 0.5D + (double)click.getFrontOffsetZ() * 0.5D);
+
+                  float fhx = (float)(hit.xCoord - against.getX());
+                  float fhy = (float)(hit.yCoord - against.getY());
+                  float fhz = (float)(hit.zCoord - against.getZ());
+
+                  IBlockState sim;
+                  float oy = mc.thePlayer.rotationYaw;
+                  float op = mc.thePlayer.rotationPitch;
+                  try {
+                     mc.thePlayer.rotationYaw = yaw;
+                     mc.thePlayer.rotationPitch = pitch;
+                     sim = block.onBlockPlaced(mc.theWorld, pos, click, fhx, fhy, fhz, meta, mc.thePlayer);
+                  } catch (Throwable t) {
+                     // A block whose onBlockPlaced touches the world can throw
+                     // in this dry run; treat it as "cannot resolve" and move on.
+                     continue;
+                  } finally {
+                     mc.thePlayer.rotationYaw = oy;
+                     mc.thePlayer.rotationPitch = op;
+                  }
+
+                  if(orientationMatches(sim, want)) {
+                     return new Placement(against, click, hit, true, yaw, pitch);
+                  }
+               }
+            }
+         }
+      }
+
+      // No combination matched: place it anyway in its default orientation
+      // rather than skip the block forever. Better a wrong-facing stair than a
+      // permanent hole the printer keeps stalling on.
+      EnumFacing f = faces.get(0);
+      EnumFacing click = f.getOpposite();
+      return new Placement(pos.offset(f), click, faceCenter(pos.offset(f), click), false, 0.0F, 0.0F);
+   }
+
+   private static Vec3 faceCenter(BlockPos against, EnumFacing click) {
+      return new Vec3(
+            (double)against.getX() + 0.5D + (double)click.getFrontOffsetX() * 0.5D,
+            (double)against.getY() + 0.5D + (double)click.getFrontOffsetY() * 0.5D,
+            (double)against.getZ() + 0.5D + (double)click.getFrontOffsetZ() * 0.5D);
+   }
+
+   /** Whether a block's state carries orientation worth aiming for. */
+   private static boolean isDirectional(IBlockState state) {
+      for(Object o : state.getProperties().keySet()) {
+         String name = ((net.minecraft.block.properties.IProperty)o).getName();
+         if("facing".equals(name) || "half".equals(name) || "axis".equals(name)
+               || "rotation".equals(name)) {
+            return true;
+         }
+      }
+
+      return false;
+   }
+
+   /** True when both states agree on every orientation property they share. */
+   private static boolean orientationMatches(IBlockState a, IBlockState b) {
+      if(a == null || b == null || a.getBlock() != b.getBlock()) {
+         return false;
+      }
+
+      return prop(a, "facing", b) && prop(a, "half", b) && prop(a, "axis", b)
+            && prop(a, "rotation", b);
+   }
+
+   /** True unless both states define the named property and disagree on it. */
+   private static boolean prop(IBlockState a, String name, IBlockState b) {
+      Comparable<?> va = value(a, name);
+      Comparable<?> vb = value(b, name);
+      return va == null || vb == null || va.equals(vb);
+   }
+
+   private static Comparable<?> value(IBlockState state, String name) {
+      for(java.util.Map.Entry<?, ?> e : state.getProperties().entrySet()) {
+         if(((net.minecraft.block.properties.IProperty)e.getKey()).getName().equals(name)) {
+            return (Comparable<?>)e.getValue();
          }
       }
 
@@ -356,6 +512,7 @@ public final class PrintEngine {
       public boolean disableGens;
       public boolean keepSlot;
       public boolean creativeGrab;
+      public boolean faceBlocks = true;
       public boolean[] slots = new boolean[]{true, true, true, true, true, true, true, true, true};
    }
 }

@@ -49,6 +49,12 @@ public class Printer extends Module {
     * survival, so it is safe to leave on.
     */
    private final BooleanSetting creativeGrab = this.addBool("Creative Grab", true);
+   /**
+    * Rotate to place directional blocks (stairs, pistons, repeaters) in the
+    * right orientation. Off means everything places in its default facing --
+    * fine for a plain obsidian wall, wrong for a redstone cannon.
+    */
+   private final BooleanSetting faceBlocks = this.addBool("Orient Directional Blocks", true);
    private final BooleanSetting clearExtra = this.addBool("Clear Extra Blocks", false);
    private final BooleanSetting clearInstantly = this.addBool("Clear Instantly", false);
    private final BooleanSetting autoTick = this.addBool("Auto Tick", true);
@@ -82,6 +88,7 @@ public class Printer extends Module {
       c.disableGens = this.disableGens.get();
       c.keepSlot = this.keepSlot.get();
       c.creativeGrab = this.creativeGrab.get();
+      c.faceBlocks = this.faceBlocks.get();
       c.slots = new boolean[]{this.slot1.get(), this.slot2.get(), this.slot3.get(),
             this.slot4.get(), this.slot5.get(), this.slot6.get(),
             this.slot7.get(), this.slot8.get(), this.slot9.get()};
@@ -98,6 +105,7 @@ public class Printer extends Module {
       this.disableGens.inSection("GENERAL");
       this.keepSlot.inSection("GENERAL");
       this.creativeGrab.inSection("GENERAL");
+      this.faceBlocks.inSection("GENERAL");
       this.placeDistance.inSection("GENERAL");
       this.placeInstantly.inSection("GENERAL");
       this.placeDelay.inSection("GENERAL");
@@ -139,6 +147,7 @@ public class Printer extends Module {
       this.disableGens.visibleWhen(this::isV2);
       this.keepSlot.visibleWhen(this::isV2);
       this.creativeGrab.visibleWhen(this::isV2);
+      this.faceBlocks.visibleWhen(this::isV2);
       this.limitPackets.visibleWhen(this::isV2);
    }
 
