@@ -190,9 +190,14 @@ public final class PrintEngine {
 
       int slot = findSlot(mc, cfg, want.getBlock());
       if(slot < 0) {
-         // Nothing to place it with. Silently skipping is correct: the block
-         // may simply not be in the hotbar yet.
-         return false;
+         // Not in the hotbar. In creative we can conjure it -- which is the
+         // whole point of the creative-grab option; on a build server you never
+         // stock the hotbar by hand. Outside creative there is nothing to do
+         // but skip.
+         slot = cfg.creativeGrab ? grabCreative(mc, cfg, want.getBlock()) : -1;
+         if(slot < 0) {
+            return false;
+         }
       }
 
       EnumFacing face = this.findSupport(mc, cfg, pos);
@@ -249,6 +254,59 @@ public final class PrintEngine {
       return null;
    }
 
+   /**
+    * Puts the wanted block into a hotbar slot via a creative-give packet and
+    * returns that slot, or -1 when not in creative.
+    *
+    * <p>This is what a creative printer does: on a build/plot server you have
+    * creative but an empty hotbar, and stocking nine slots by hand for a large
+    * schematic is the tedium the printer exists to remove. {@code sendSlotPacket}
+    * is the same call the creative inventory GUI uses, and it no-ops off
+    * creative, so this cannot give items on a survival server even if misused.
+    *
+    * <p>Prefers the first <em>empty</em> enabled slot so it does not clobber a
+    * block you are already holding; only if every enabled slot is full does it
+    * reuse the current one, since the schematic needs this block now.
+    */
+   private static int grabCreative(Minecraft mc, Config cfg, Block block) {
+      if(!mc.playerController.isInCreativeMode()) {
+         return -1;
+      }
+
+      net.minecraft.item.Item item = Item.getItemFromBlock(block);
+      if(item == null) {
+         return -1;
+      }
+
+      int slot = firstUsableSlot(mc, cfg);
+      if(slot < 0) {
+         return -1;
+      }
+
+      ItemStack stack = new ItemStack(item, 64, block.getMetaFromState(block.getDefaultState()));
+
+      // Update the client inventory as well as sending the packet: the place
+      // that follows reads getHeldItem this same tick, before any server echo
+      // could arrive.
+      mc.thePlayer.inventory.setInventorySlotContents(slot, stack);
+
+      // Player-inventory container slot ids: the hotbar is 36-44.
+      mc.playerController.sendSlotPacket(stack, 36 + slot);
+      return slot;
+   }
+
+   /** First empty enabled hotbar slot, else the current slot if it is enabled. */
+   private static int firstUsableSlot(Minecraft mc, Config cfg) {
+      for(int i = 0; i < 9; ++i) {
+         if(cfg.slots[i] && mc.thePlayer.inventory.getStackInSlot(i) == null) {
+            return i;
+         }
+      }
+
+      int cur = mc.thePlayer.inventory.currentItem;
+      return cfg.slots[cur] ? cur : -1;
+   }
+
    /** Hotbar slot holding the block, or -1. Only enabled slots are considered. */
    private static int findSlot(Minecraft mc, Config cfg, Block block) {
       Item wanted = Item.getItemFromBlock(block);
@@ -297,6 +355,7 @@ public final class PrintEngine {
       public boolean breakInstantly;
       public boolean disableGens;
       public boolean keepSlot;
+      public boolean creativeGrab;
       public boolean[] slots = new boolean[]{true, true, true, true, true, true, true, true, true};
    }
 }

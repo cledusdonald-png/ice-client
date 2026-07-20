@@ -43,6 +43,12 @@ public class Printer extends Module {
    private final BooleanSetting breakInstantly = this.addBool("Break Blocks Instantly", false);
    private final BooleanSetting disableGens = this.addBool("Disable Gens", false);
    private final BooleanSetting keepSlot = this.addBool("Keep Selected Slot", false);
+   /**
+    * On a creative build server, pull each needed block straight from the
+    * creative inventory instead of requiring it in the hotbar. No-ops in
+    * survival, so it is safe to leave on.
+    */
+   private final BooleanSetting creativeGrab = this.addBool("Creative Grab", true);
    private final BooleanSetting clearExtra = this.addBool("Clear Extra Blocks", false);
    private final BooleanSetting clearInstantly = this.addBool("Clear Instantly", false);
    private final BooleanSetting autoTick = this.addBool("Auto Tick", true);
@@ -75,6 +81,7 @@ public class Printer extends Module {
       c.breakInstantly = this.breakInstantly.get();
       c.disableGens = this.disableGens.get();
       c.keepSlot = this.keepSlot.get();
+      c.creativeGrab = this.creativeGrab.get();
       c.slots = new boolean[]{this.slot1.get(), this.slot2.get(), this.slot3.get(),
             this.slot4.get(), this.slot5.get(), this.slot6.get(),
             this.slot7.get(), this.slot8.get(), this.slot9.get()};
@@ -90,6 +97,7 @@ public class Printer extends Module {
       this.breakInstantly.inSection("CLEAR");
       this.disableGens.inSection("GENERAL");
       this.keepSlot.inSection("GENERAL");
+      this.creativeGrab.inSection("GENERAL");
       this.placeDistance.inSection("GENERAL");
       this.placeInstantly.inSection("GENERAL");
       this.placeDelay.inSection("GENERAL");
@@ -130,6 +138,7 @@ public class Printer extends Module {
       this.replaceWrong.visibleWhen(this::isV2);
       this.disableGens.visibleWhen(this::isV2);
       this.keepSlot.visibleWhen(this::isV2);
+      this.creativeGrab.visibleWhen(this::isV2);
       this.limitPackets.visibleWhen(this::isV2);
    }
 
