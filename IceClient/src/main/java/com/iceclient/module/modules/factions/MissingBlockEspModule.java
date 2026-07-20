@@ -4,6 +4,7 @@ import com.iceclient.module.Module;
 import com.iceclient.module.ModuleCategory;
 import com.iceclient.module.modules.factions.SchematicModule;
 import com.iceclient.schematica.SchematicaBridge;
+import com.iceclient.setting.BooleanSetting;
 import com.iceclient.setting.ModeSetting;
 import com.iceclient.setting.NumberSetting;
 import net.minecraft.client.renderer.GlStateManager;
@@ -15,9 +16,24 @@ public class MissingBlockEspModule extends Module {
    private final NumberSetting range = (NumberSetting)this.addSetting(new NumberSetting("Range", 24.0D, 4.0D, 64.0D, 1.0D));
    private final NumberSetting lineWidth = (NumberSetting)this.addSetting(new NumberSetting("Line width", 1.5D, 1.0D, 4.0D, 0.5D));
    private final ModeSetting color = (ModeSetting)this.addSetting(new ModeSetting("Color", "Red", new String[]{"Red", "Orange", "Pink", "White"}));
+   /**
+    * Outline the surface of the missing region instead of a full cube per
+    * block. A solid wall then shows one clean outline rather than a dense grid
+    * of every internal edge -- far fewer lines to look at and to draw.
+    */
+   private final BooleanSetting surfaceOnly = (BooleanSetting)this.addSetting(new BooleanSetting("Surface only", true));
+
+   /** Hard cap so a huge schematic cannot flood the frame with geometry. */
+   private static final int MAX_BOXES = 4000;
+
+   private final java.util.Set<Long> missing = new java.util.HashSet<Long>();
 
    public MissingBlockEspModule() {
       super("MissingBlockESP", "Outlines schematic blocks you still need to place", ModuleCategory.FACTIONS, 0);
+   }
+
+   private static long key(int x, int y, int z) {
+      return ((long)(x & 0x3FFFFF)) | ((long)(y & 0xFFF) << 22) | ((long)(z & 0x3FFFFF) << 34);
    }
 
    @SubscribeEvent
@@ -28,31 +44,71 @@ public class MissingBlockEspModule extends Module {
          return;
       }
 
-      if(this.isEnabled() && this.mc.thePlayer != null) {
-         double camX = this.mc.getRenderManager().viewerPosX;
-         double camY = this.mc.getRenderManager().viewerPosY;
-         double camZ = this.mc.getRenderManager().viewerPosZ;
-         this.setupLineState();
-         GL11.glLineWidth((float)this.lineWidth.get());
-         float[] rgb = this.rgb();
-         GlStateManager.color(rgb[0], rgb[1], rgb[2], 0.85F);
-         GL11.glBegin(1);
-         if(SchematicaBridge.isAvailable() && SchematicaBridge.hasSchematic()) {
-            SchematicaBridge.forEachMissing(this.range.get(), (wx, wy, wz) -> {
-               this.emitBoxEdges(wx - camX, wy - camY, wz - camZ);
-            });
-         } else {
-            SchematicModule schem = SchematicModule.getInstance();
-            if(schem != null && schem.hasSchematic()) {
-               schem.forEachMissing(this.mc.thePlayer, this.range.get(), (wx, wy, wz) -> {
-                  this.emitBoxEdges(wx - camX, wy - camY, wz - camZ);
-               });
+      if(!this.isEnabled() || this.mc.thePlayer == null) {
+         return;
+      }
+
+      // Gather the missing positions first, so surface culling can ask whether
+      // each neighbour is also missing.
+      this.missing.clear();
+      boolean bridge = SchematicaBridge.isAvailable() && SchematicaBridge.hasSchematic();
+      SchematicModule schem = bridge ? null : SchematicModule.getInstance();
+
+      if(bridge) {
+         SchematicaBridge.forEachMissing(this.range.get(), (wx, wy, wz) -> {
+            if(this.missing.size() < MAX_BOXES) {
+               this.missing.add(key((int)Math.floor(wx), (int)Math.floor(wy), (int)Math.floor(wz)));
+            }
+         });
+      } else if(schem != null && schem.hasSchematic()) {
+         schem.forEachMissing(this.mc.thePlayer, this.range.get(), (wx, wy, wz) -> {
+            if(this.missing.size() < MAX_BOXES) {
+               this.missing.add(key((int)Math.floor(wx), (int)Math.floor(wy), (int)Math.floor(wz)));
+            }
+         });
+      }
+
+      if(this.missing.isEmpty()) {
+         return;
+      }
+
+      double camX = this.mc.getRenderManager().viewerPosX;
+      double camY = this.mc.getRenderManager().viewerPosY;
+      double camZ = this.mc.getRenderManager().viewerPosZ;
+
+      this.setupLineState();
+      GL11.glLineWidth((float)this.lineWidth.get());
+      float[] rgb = this.rgb();
+      GlStateManager.color(rgb[0], rgb[1], rgb[2], 0.85F);
+      GL11.glBegin(1);
+
+      boolean surface = this.surfaceOnly.get();
+      for(Long k : this.missing) {
+         long v = k.longValue();
+         int x = signed22((int)(v & 0x3FFFFF));
+         int y = (int)((v >> 22) & 0xFFF);
+         int z = signed22((int)((v >> 34) & 0x3FFFFF));
+
+         if(surface) {
+            // Skip a block whose six neighbours are all also missing: it is
+            // buried inside the region and none of its edges are visible.
+            if(this.missing.contains(key(x + 1, y, z)) && this.missing.contains(key(x - 1, y, z))
+                  && this.missing.contains(key(x, y + 1, z)) && this.missing.contains(key(x, y - 1, z))
+                  && this.missing.contains(key(x, y, z + 1)) && this.missing.contains(key(x, y, z - 1))) {
+               continue;
             }
          }
 
-         GL11.glEnd();
-         this.teardownLineState();
+         this.emitBoxEdges((double)x - camX, (double)y - camY, (double)z - camZ);
       }
+
+      GL11.glEnd();
+      this.teardownLineState();
+   }
+
+   /** Sign-extend a 22-bit coordinate back to a full int. */
+   private static int signed22(int v) {
+      return (v << 10) >> 10;
    }
 
    private void emitBoxEdges(double x, double y, double z) {

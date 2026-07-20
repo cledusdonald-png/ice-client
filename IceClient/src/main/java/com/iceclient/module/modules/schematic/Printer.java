@@ -55,6 +55,17 @@ public class Printer extends Module {
     * fine for a plain obsidian wall, wrong for a redstone cannon.
     */
    private final BooleanSetting faceBlocks = this.addBool("Orient Directional Blocks", true);
+   /**
+    * Break and re-place a same-type block that is facing the wrong way -- the
+    * dispenser case. Without it a wrongly-oriented block reads as "already
+    * built" and is left pointing the wrong direction.
+    */
+   private final BooleanSetting fixOrientation = this.addBool("Fix Wrong Orientation", true);
+   /**
+    * Attempt to place blocks with no solid neighbour to click. Only works where
+    * the server allows floating placement; harmless otherwise.
+    */
+   private final BooleanSetting midAir = this.addBool("Place In Mid Air", false);
    private final BooleanSetting clearExtra = this.addBool("Clear Extra Blocks", false);
    private final BooleanSetting clearInstantly = this.addBool("Clear Instantly", false);
    private final BooleanSetting autoTick = this.addBool("Auto Tick", true);
@@ -89,6 +100,8 @@ public class Printer extends Module {
       c.keepSlot = this.keepSlot.get();
       c.creativeGrab = this.creativeGrab.get();
       c.faceBlocks = this.faceBlocks.get();
+      c.fixOrientation = this.fixOrientation.get();
+      c.midAir = this.midAir.get();
       c.slots = new boolean[]{this.slot1.get(), this.slot2.get(), this.slot3.get(),
             this.slot4.get(), this.slot5.get(), this.slot6.get(),
             this.slot7.get(), this.slot8.get(), this.slot9.get()};
@@ -106,6 +119,8 @@ public class Printer extends Module {
       this.keepSlot.inSection("GENERAL");
       this.creativeGrab.inSection("GENERAL");
       this.faceBlocks.inSection("GENERAL");
+      this.fixOrientation.inSection("CLEAR");
+      this.midAir.inSection("GENERAL");
       this.placeDistance.inSection("GENERAL");
       this.placeInstantly.inSection("GENERAL");
       this.placeDelay.inSection("GENERAL");
@@ -148,6 +163,8 @@ public class Printer extends Module {
       this.keepSlot.visibleWhen(this::isV2);
       this.creativeGrab.visibleWhen(this::isV2);
       this.faceBlocks.visibleWhen(this::isV2);
+      this.fixOrientation.visibleWhen(this::isV2);
+      this.midAir.visibleWhen(this::isV2);
       this.limitPackets.visibleWhen(this::isV2);
    }
 

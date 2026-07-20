@@ -130,6 +130,12 @@ public final class PrintEngine {
 
             IBlockState have = mc.theWorld.getBlockState(world);
             if(have.getBlock() == want.getBlock()) {
+               // Same block: only revisit it if it is facing the wrong way and
+               // we are set to correct that.
+               if(cfg.fixOrientation && !orientationMatches(have, want)) {
+                  found.add(world);
+               }
+
                return;
             }
 
@@ -169,14 +175,29 @@ public final class PrintEngine {
          return false;
       }
 
-      IBlockState have = mc.theWorld.getBlockState(pos);
-      if(have.getBlock() == want.getBlock()) {
-         return false;
-      }
-
       double dist = mc.thePlayer.getDistanceSq(pos);
       if(dist > cfg.placeDistance * cfg.placeDistance) {
          return false;
+      }
+
+      IBlockState have = mc.theWorld.getBlockState(pos);
+
+      // Right block already there. Done -- unless it is the right block facing
+      // the wrong way and we are allowed to correct that. This is the dispenser
+      // case: a same-type block whose facing does not match gets broken so the
+      // next pass replaces it correctly. Without this it looked "done" and was
+      // left pointing the wrong direction forever.
+      if(have.getBlock() == want.getBlock()) {
+         if(!cfg.fixOrientation || orientationMatches(have, want)) {
+            return false;
+         }
+
+         mc.playerController.onPlayerDamageBlock(pos, EnumFacing.UP);
+         if(cfg.breakInstantly) {
+            mc.playerController.onPlayerDestroyBlock(pos, EnumFacing.UP);
+         }
+
+         return true;
       }
 
       boolean occupied = have.getBlock() != Blocks.air && !have.getBlock().getMaterial().isLiquid();
@@ -297,7 +318,15 @@ public final class PrintEngine {
       }
 
       if(faces.isEmpty()) {
-         return null;
+         if(!cfg.midAir) {
+            return null;
+         }
+
+         // Nothing solid to click. On a server that permits floating placement
+         // -- or once the schematic below is filled by the bottom-up pass --
+         // attempt it against the neighbour anyway. Harmless where the server
+         // rejects it; it just does not place.
+         Collections.addAll(faces, EnumFacing.values());
       }
 
       boolean directional = cfg.faceBlocks && isDirectional(want);
@@ -310,45 +339,34 @@ public final class PrintEngine {
 
       int meta = mc.thePlayer.getHeldItem() != null ? mc.thePlayer.getHeldItem().getMetadata() : 0;
       Block block = want.getBlock();
+      int stateId = Block.getStateId(want);
 
-      for(EnumFacing f : faces) {
-         BlockPos against = pos.offset(f);
-         EnumFacing click = f.getOpposite();
+      // Fast path: a rotation that solved this exact state before almost always
+      // solves it again (a wall of stairs all want the same facing). Try the
+      // cached rotation across the available faces before the full 24-combo
+      // search -- this is what keeps the orientation logic from tanking the
+      // frame rate on a large uniform structure.
+      int[] cached = ORIENT_CACHE.get(Integer.valueOf(stateId));
+      if(cached != null) {
+         for(EnumFacing f : faces) {
+            Placement p = this.tryPlace(mc, block, pos, f, want, meta,
+                  YAWS[cached[0]], PITCHES[cached[1]], HIT_Y[cached[2]]);
+            if(p != null) {
+               return p;
+            }
+         }
+      }
 
-         for(float yaw : YAWS) {
-            for(float pitch : PITCHES) {
-               for(float hy : HIT_Y) {
-                  // Hit point on the clicked face, with the vertical nudged for
-                  // half control on side faces.
-                  Vec3 hit = new Vec3(
-                        (double)against.getX() + 0.5D + (double)click.getFrontOffsetX() * 0.5D,
-                        click.getAxis() == EnumFacing.Axis.Y
-                              ? (double)against.getY() + 0.5D + (double)click.getFrontOffsetY() * 0.5D
-                              : (double)against.getY() + (double)hy,
-                        (double)against.getZ() + 0.5D + (double)click.getFrontOffsetZ() * 0.5D);
-
-                  float fhx = (float)(hit.xCoord - against.getX());
-                  float fhy = (float)(hit.yCoord - against.getY());
-                  float fhz = (float)(hit.zCoord - against.getZ());
-
-                  IBlockState sim;
-                  float oy = mc.thePlayer.rotationYaw;
-                  float op = mc.thePlayer.rotationPitch;
-                  try {
-                     mc.thePlayer.rotationYaw = yaw;
-                     mc.thePlayer.rotationPitch = pitch;
-                     sim = block.onBlockPlaced(mc.theWorld, pos, click, fhx, fhy, fhz, meta, mc.thePlayer);
-                  } catch (Throwable t) {
-                     // A block whose onBlockPlaced touches the world can throw
-                     // in this dry run; treat it as "cannot resolve" and move on.
-                     continue;
-                  } finally {
-                     mc.thePlayer.rotationYaw = oy;
-                     mc.thePlayer.rotationPitch = op;
-                  }
-
-                  if(orientationMatches(sim, want)) {
-                     return new Placement(against, click, hit, true, yaw, pitch);
+      for(int fi = 0; fi < faces.size(); ++fi) {
+         EnumFacing f = faces.get(fi);
+         for(int yi = 0; yi < YAWS.length; ++yi) {
+            for(int pi = 0; pi < PITCHES.length; ++pi) {
+               for(int hi = 0; hi < HIT_Y.length; ++hi) {
+                  Placement p = this.tryPlace(mc, block, pos, f, want, meta,
+                        YAWS[yi], PITCHES[pi], HIT_Y[hi]);
+                  if(p != null) {
+                     ORIENT_CACHE.put(Integer.valueOf(stateId), new int[]{yi, pi, hi});
+                     return p;
                   }
                }
             }
@@ -361,6 +379,49 @@ public final class PrintEngine {
       EnumFacing f = faces.get(0);
       EnumFacing click = f.getOpposite();
       return new Placement(pos.offset(f), click, faceCenter(pos.offset(f), click), false, 0.0F, 0.0F);
+   }
+
+   private final java.util.Map<Integer, int[]> ORIENT_CACHE = new java.util.HashMap<Integer, int[]>();
+
+   /**
+    * Dry-runs one candidate click and returns a Placement if the block would
+    * land in the target orientation, else null.
+    */
+   private Placement tryPlace(Minecraft mc, Block block, BlockPos pos, EnumFacing f,
+                              IBlockState want, int meta, float yaw, float pitch, float hy) {
+      BlockPos against = pos.offset(f);
+      EnumFacing click = f.getOpposite();
+
+      Vec3 hit = new Vec3(
+            (double)against.getX() + 0.5D + (double)click.getFrontOffsetX() * 0.5D,
+            click.getAxis() == EnumFacing.Axis.Y
+                  ? (double)against.getY() + 0.5D + (double)click.getFrontOffsetY() * 0.5D
+                  : (double)against.getY() + (double)hy,
+            (double)against.getZ() + 0.5D + (double)click.getFrontOffsetZ() * 0.5D);
+
+      float fhx = (float)(hit.xCoord - against.getX());
+      float fhy = (float)(hit.yCoord - against.getY());
+      float fhz = (float)(hit.zCoord - against.getZ());
+
+      IBlockState sim;
+      float oy = mc.thePlayer.rotationYaw;
+      float op = mc.thePlayer.rotationPitch;
+      try {
+         mc.thePlayer.rotationYaw = yaw;
+         mc.thePlayer.rotationPitch = pitch;
+         sim = block.onBlockPlaced(mc.theWorld, pos, click, fhx, fhy, fhz, meta, mc.thePlayer);
+      } catch (Throwable t) {
+         // A block whose onBlockPlaced touches the world can throw in this dry
+         // run; treat it as "cannot resolve" and move on.
+         return null;
+      } finally {
+         mc.thePlayer.rotationYaw = oy;
+         mc.thePlayer.rotationPitch = op;
+      }
+
+      return orientationMatches(sim, want)
+            ? new Placement(against, click, hit, true, yaw, pitch)
+            : null;
    }
 
    private static Vec3 faceCenter(BlockPos against, EnumFacing click) {
@@ -513,6 +574,8 @@ public final class PrintEngine {
       public boolean keepSlot;
       public boolean creativeGrab;
       public boolean faceBlocks = true;
+      public boolean fixOrientation = true;
+      public boolean midAir;
       public boolean[] slots = new boolean[]{true, true, true, true, true, true, true, true, true};
    }
 }
