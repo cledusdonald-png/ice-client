@@ -308,5 +308,17 @@
     if (/^Starting Minecraft/.test(msg)) idle(); // game window is opening; re-arm Play
   });
 </script>
+<script>
+  // Replace the hardcoded version labels with the real ones.
+  (async () => {
+    try {
+      const v = await window.versions.get();
+      const launcherEl = document.querySelector('.side-foot');
+      const clientEl = document.querySelector('.ver .vsub');
+      if (launcherEl) launcherEl.textContent = 'Launcher v' + v.launcher;
+      if (clientEl) clientEl.textContent = 'Forge · Ice v' + v.client;
+    } catch (e) { /* leave the static text if anything goes wrong */ }
+  })();
+</script>
 </body>
 </html>

@@ -18,6 +18,10 @@ contextBridge.exposeInMainWorld('game', {
   onStatus: (cb) => ipcRenderer.on('game:status', (e, msg) => cb(msg))
 });
 
+contextBridge.exposeInMainWorld('versions', {
+  get: () => ipcRenderer.invoke('app:versions')
+});
+
 contextBridge.exposeInMainWorld('settings', {
   get: () => ipcRenderer.invoke('settings:get'),
   set: (patch) => ipcRenderer.invoke('settings:set', patch)

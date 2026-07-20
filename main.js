@@ -84,8 +84,29 @@ function createWindow() {
   mainWindow.once('ready-to-show', () => mainWindow.show());
 }
 
+// ---------- launcher self-update ----------
+// Checks the VPS for a newer launcher build, downloads it in the background and
+// installs it when the launcher is closed. Silent and offline-safe: if the
+// server is unreachable it just logs and carries on.
+const { autoUpdater } = require('electron-updater');
+autoUpdater.autoDownload = true;
+autoUpdater.autoInstallOnAppQuit = true;
+autoUpdater.on('checking-for-update', () => logLine('SELFUPDATE', 'checking'));
+autoUpdater.on('update-not-available', () => logLine('SELFUPDATE', 'launcher up to date'));
+autoUpdater.on('update-available', (i) => {
+  logLine('SELFUPDATE', 'downloading launcher ' + i.version);
+  status('Downloading launcher update ' + i.version + '…');
+});
+autoUpdater.on('update-downloaded', (i) => {
+  logLine('SELFUPDATE', 'ready ' + i.version);
+  status('Launcher update ready — installs when you close it');
+});
+autoUpdater.on('error', (e) => logLine('SELFUPDATE', 'skipped: ' + ((e && e.message) || e)));
+
 app.whenReady().then(() => {
   createWindow();
+  // slight delay so the window is up before any status messages fire
+  setTimeout(() => { try { autoUpdater.checkForUpdates(); } catch (e) { /* offline */ } }, 3000);
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
@@ -106,6 +127,23 @@ ipcMain.handle('settings:set', async (e, patch) => {
   if (patch && patch.ramGb !== undefined) s.ramGb = clampRam(patch.ramGb);
   writeSettings(s);
   return { ...s, maxRamGb: maxRamGb(), totalRamGb: totalRamGb() };
+});
+
+// ---------- versions ----------
+
+// Launcher version comes from package.json; client version from whatever jar is
+// actually installed (the update marker, else the bundled jar's filename).
+ipcMain.handle('app:versions', async () => {
+  let client = null;
+  try { client = JSON.parse(fs.readFileSync(versionMarker(), 'utf8')).clientVersion; } catch (e) { /* not updated yet */ }
+  if (!client) {
+    try {
+      const jar = fs.readdirSync(path.join(bundleDir(), 'mods')).find((n) => /^IceClient.*\.jar$/i.test(n));
+      const m = jar && jar.match(/(\d+\.\d+\.\d+)/);
+      if (m) client = m[1];
+    } catch (e) { /* ignore */ }
+  }
+  return { launcher: app.getVersion(), client: client || '?' };
 });
 
 // ---------- auth ----------
@@ -161,19 +199,27 @@ function findJava8() {
     'C:/Program Files/Zulu',
     'C:/Program Files (x86)/Java'
   ];
+  // Prefer javaw.exe: that's what the official launcher uses, so the game shows
+  // up as javaw.exe (what screenshare/anticheat tooling expects) and no console
+  // window tags along. java.exe is the fallback.
+  const names = ['javaw.exe', 'java.exe'];
   for (const base of bases) {
     try {
       for (const dir of fs.readdirSync(base)) {
         if (/(^|[^0-9])(1\.8|jdk-?8|jre-?8|8\.)/i.test(dir)) {
-          const exe = path.join(base, dir, 'bin', 'java.exe');
-          if (fs.existsSync(exe)) return exe;
+          for (const name of names) {
+            const exe = path.join(base, dir, 'bin', name);
+            if (fs.existsSync(exe)) return exe;
+          }
         }
       }
     } catch (e) { /* base doesn't exist */ }
   }
   if (process.env.JAVA_HOME) {
-    const exe = path.join(process.env.JAVA_HOME, 'bin', 'java.exe');
-    if (fs.existsSync(exe)) return exe;
+    for (const name of names) {
+      const exe = path.join(process.env.JAVA_HOME, 'bin', name);
+      if (fs.existsSync(exe)) return exe;
+    }
   }
   return null;
 }
@@ -214,9 +260,80 @@ launcher.on('debug', (line) => { lastDebug = String(line); logLine('DEBUG', line
 launcher.on('data', (line) => { sawGameData = true; logLine('GAME', line); });
 launcher.on('close', (code) => {
   logLine('CLOSE', 'code=' + code);
-  if (sawGameData) { status('CLOSED'); }
+  // javaw.exe produces no console output, so a clean exit code counts as "ran fine"
+  if (sawGameData || code === 0) { status('CLOSED'); }
   else { status('Error: ' + (lastDebug ? lastDebug.slice(0, 140) : 'game exited (code ' + code + ') — see launcher.log')); }
 });
+
+// ---------- auto-update ----------
+// The VPS publishes a manifest; if it names a client build newer than what's
+// installed we pull that jar into the mods folder before launching. Offline-safe:
+// any failure is logged and skipped so the game still starts.
+const http = require('http');
+const https = require('https');
+
+const UPDATE_MANIFEST = 'http://5.175.213.69/download/version.json';
+
+function httpGet(url, cb) {
+  return (url.startsWith('https') ? https : http).get(url, cb);
+}
+
+function fetchJson(url) {
+  return new Promise((resolve, reject) => {
+    httpGet(url, (r) => {
+      if (r.statusCode !== 200) { r.resume(); return reject(new Error('HTTP ' + r.statusCode)); }
+      let body = '';
+      r.setEncoding('utf8');
+      r.on('data', (c) => body += c);
+      r.on('end', () => { try { resolve(JSON.parse(body)); } catch (e) { reject(e); } });
+    }).on('error', reject);
+  });
+}
+
+function downloadTo(url, dest) {
+  return new Promise((resolve, reject) => {
+    const file = fs.createWriteStream(dest);
+    httpGet(url, (r) => {
+      if (r.statusCode !== 200) { r.resume(); return reject(new Error('HTTP ' + r.statusCode)); }
+      r.pipe(file);
+      file.on('finish', () => file.close(() => resolve()));
+    }).on('error', reject);
+  });
+}
+
+const versionMarker = () => path.join(app.getPath('userData'), 'client-version.json');
+
+async function syncClientUpdate(modsDst) {
+  try {
+    const m = await fetchJson(UPDATE_MANIFEST);
+    if (!m || !m.clientVersion || !m.jar || !m.jar.url || !m.jar.name) return;
+
+    const target = path.join(modsDst, m.jar.name);
+    let installed = null;
+    try { installed = JSON.parse(fs.readFileSync(versionMarker(), 'utf8')).clientVersion; } catch (e) { /* first run */ }
+
+    const needsDownload = (installed !== m.clientVersion) || !fs.existsSync(target);
+    if (needsDownload) {
+      status('Updating Ice Client to ' + m.clientVersion + '…');
+      const tmp = path.join(app.getPath('userData'), 'update.jar');
+      await downloadTo(m.jar.url, tmp);
+      fs.copyFileSync(tmp, target);
+      fs.writeFileSync(versionMarker(), JSON.stringify({ clientVersion: m.clientVersion }));
+      logLine('UPDATE', 'installed ' + m.jar.name + ' (' + m.clientVersion + ')');
+    }
+
+    // ALWAYS prune other client jars. The bundled one gets re-copied every launch,
+    // and two copies of the mod makes Forge refuse to start (duplicate mod id).
+    for (const f of fs.readdirSync(modsDst)) {
+      if (/^IceClient.*\.jar$/i.test(f) && f !== m.jar.name) {
+        fs.unlinkSync(path.join(modsDst, f));
+        logLine('UPDATE', 'removed stale ' + f);
+      }
+    }
+  } catch (e) {
+    logLine('UPDATE', 'skipped: ' + ((e && e.message) || e));
+  }
+}
 
 ipcMain.handle('game:launch', async () => {
   if (!currentAuth) return { ok: false, error: 'Sign in first' };
@@ -236,6 +353,32 @@ ipcMain.handle('game:launch', async () => {
     fs.mkdirSync(modsDst, { recursive: true });
     for (const f of fs.readdirSync(modsSrc)) {
       if (f.endsWith('.jar')) fs.copyFileSync(path.join(modsSrc, f), path.join(modsDst, f));
+    }
+
+    // then pull a newer client build from the VPS, if one is published
+    await syncClientUpdate(modsDst);
+
+    // Safety net: Forge refuses to start if two copies of the mod are present.
+    // This runs no matter what (even if the update check failed or we're offline):
+    // keep only the newest IceClient jar, delete any others.
+    try {
+      const jars = fs.readdirSync(modsDst).filter((f) => /^IceClient.*\.jar$/i.test(f));
+      if (jars.length > 1) {
+        let newest = null;
+        let newestTime = -1;
+        for (const f of jars) {
+          const t = fs.statSync(path.join(modsDst, f)).mtimeMs;
+          if (t > newestTime) { newestTime = t; newest = f; }
+        }
+        for (const f of jars) {
+          if (f !== newest) {
+            fs.unlinkSync(path.join(modsDst, f));
+            logLine('UPDATE', 'removed duplicate ' + f);
+          }
+        }
+      }
+    } catch (e) {
+      logLine('UPDATE', 'dedupe failed: ' + ((e && e.message) || e));
     }
 
     // Lay down our pre-built Forge 1.8.9 (version profile + its libraries) so MCLC
