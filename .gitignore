@@ -8,3 +8,6 @@ dist/
 IceClient/build/
 IceClient/.gradle/
 IceClient/.idea/
+
+# Orbit reference source -- local study only, never redistributed.
+reference/

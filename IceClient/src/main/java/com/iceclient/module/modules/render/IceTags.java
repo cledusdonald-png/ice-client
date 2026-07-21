@@ -11,7 +11,6 @@ import net.minecraft.client.renderer.WorldRenderer;
 import net.minecraft.client.renderer.entity.RenderManager;
 import net.minecraft.client.renderer.vertex.DefaultVertexFormats;
 import net.minecraft.entity.player.EntityPlayer;
-import net.minecraftforge.client.event.RenderPlayerEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
 import org.lwjgl.opengl.GL11;
@@ -141,22 +140,141 @@ public class IceTags extends Module {
 
     // ---------- rendering ----------
 
+    /**
+     * Replaces the vanilla nameplate for Ice users so the badge sits inline.
+     *
+     * <p>Stacking "ICE" on a second line above the name was the obvious approach
+     * and it looks wrong -- it reads as two separate labels and doubles the
+     * height of every tag in a fight. Lunar puts its mark on the same line, left
+     * of the name, and the whole thing stays one nameplate. Doing that means
+     * drawing the plate ourselves, so vanilla's is cancelled here.
+     *
+     * <p>The name is taken from {@code getDisplayName().getFormattedText()},
+     * which is what vanilla uses -- so server rank prefixes and their colours
+     * survive intact rather than being flattened to a plain username.
+     */
     @SubscribeEvent
-    public void onRenderPlayer(RenderPlayerEvent.Post event) {
-        if (!isEnabled() || mc.thePlayer == null) return;
-        EntityPlayer p = event.entityPlayer;
-        double baseY = event.y + p.height + 0.5D;
+    public void onNameplate(net.minecraftforge.client.event.RenderLivingEvent.Specials.Pre event) {
+        if (!isEnabled() || !badge.get() || mc.thePlayer == null) return;
+        if (!(event.entity instanceof EntityPlayer)) return;
 
-        if (p == mc.thePlayer) {
-            // vanilla never draws your own tag; do it ourselves in 3rd person/freelook
-            if (!ownTag.get() || mc.gameSettings.thirdPersonView == 0) return;
-            drawLabel(event.x, baseY, event.z, p.getName(), 0xFFFFFF);
-            if (badge.get()) drawLabel(event.x, baseY + 0.32D, event.z, "ICE", ICE);
-        } else {
-            // vanilla already drew their name -- stack our badge above it
-            if (!badge.get() || !isIceUser(p)) return;
-            drawLabel(event.x, baseY + 0.32D, event.z, "ICE", ICE);
+        EntityPlayer p = (EntityPlayer) event.entity;
+        if (p == mc.thePlayer || !isIceUser(p)) return;
+
+        // Match vanilla's own rules for showing a nameplate at all.
+        if (p.isInvisibleToPlayer(mc.thePlayer) || p.isSneaking()) return;
+        if (p.getDistanceSqToEntity(mc.getRenderViewEntity()) > 64.0D * 64.0D) return;
+
+        // Cancel only. The replacement is drawn in onRenderWorldLast, after tile
+        // entities -- drawing it here as well would double every tag up.
+        event.setCanceled(true);
+    }
+
+    /**
+     * Draws every tag after the world is finished, rather than during each
+     * player's own render.
+     *
+     * <p>Two bugs share one cause here. Tags drawn inside the entity pass are
+     * painted over by anything rendered later -- chests and other tile entities
+     * come after players, so a chest in front would slice a name in half. And
+     * the entity pass only runs for players Minecraft decided to draw, so during
+     * FreeLook (which leaves your body still, and so leaves the visible-chunk
+     * set stale) culled players lost their tags entirely.
+     *
+     * <p>{@code RenderWorldLastEvent} fires once per frame after all of that, so
+     * neither applies: the tag is always drawn, and always on top.
+     */
+    @SubscribeEvent
+    public void onRenderWorldLast(net.minecraftforge.client.event.RenderWorldLastEvent event) {
+        if (!isEnabled() || mc.thePlayer == null || mc.theWorld == null) return;
+
+        RenderManager rm = mc.getRenderManager();
+        float pt = event.partialTicks;
+
+        for (EntityPlayer p : mc.theWorld.playerEntities) {
+            boolean self = p == mc.thePlayer;
+
+            if (self) {
+                if (!ownTag.get() || mc.gameSettings.thirdPersonView == 0) continue;
+            } else {
+                if (!badge.get() || !isIceUser(p)) continue;
+                if (p.isInvisibleToPlayer(mc.thePlayer) || p.isSneaking()) continue;
+            }
+
+            if (p.getDistanceSqToEntity(mc.thePlayer) > 64.0D * 64.0D) continue;
+
+            // Interpolated so the tag tracks a moving player smoothly, and
+            // camera-relative because this event draws in world space.
+            double x = p.prevPosX + (p.posX - p.prevPosX) * pt - rm.viewerPosX;
+            double y = p.prevPosY + (p.posY - p.prevPosY) * pt - rm.viewerPosY + p.height + 0.5D;
+            double z = p.prevPosZ + (p.posZ - p.prevPosZ) * pt - rm.viewerPosZ;
+
+            if (badge.get()) {
+                drawBadgedLabel(x, y, z, p.getDisplayName().getFormattedText());
+            } else {
+                drawLabel(x, y, z, p.getName(), 0xFFFFFF);
+            }
         }
+    }
+
+    /** Nameplate with the ice mark inline, ahead of the name. */
+    private void drawBadgedLabel(double x, double y, double z, String text) {
+        RenderManager rm = mc.getRenderManager();
+        FontRenderer fr = mc.fontRendererObj;
+        if (fr == null) return;
+
+        int textW = fr.getStringWidth(text);
+        int mark = 7;              // width of the crystal
+        int gapAfterMark = 3;
+        int total = mark + gapAfterMark + textW;
+        int left = -total / 2;
+
+        GlStateManager.pushMatrix();
+        GlStateManager.translate(x, y, z);
+        GL11.glNormal3f(0f, 1f, 0f);
+        GlStateManager.rotate(-rm.playerViewY, 0f, 1f, 0f);
+        GlStateManager.rotate(rm.playerViewX, 1f, 0f, 0f);
+        GlStateManager.scale(-0.02666667f, -0.02666667f, 0.02666667f);
+        GlStateManager.disableLighting();
+        GlStateManager.depthMask(false);
+        GlStateManager.disableDepth();
+        GlStateManager.enableBlend();
+        GlStateManager.blendFunc(770, 771);
+
+        GlStateManager.disableTexture2D();
+        Tessellator tess = Tessellator.getInstance();
+        WorldRenderer wr = tess.getWorldRenderer();
+
+        // Backing plate, sized to mark + name together.
+        wr.begin(7, DefaultVertexFormats.POSITION_COLOR);
+        wr.pos(left - 2, -1, 0).color(0f, 0f, 0f, 0.25f).endVertex();
+        wr.pos(left - 2, 8, 0).color(0f, 0f, 0f, 0.25f).endVertex();
+        wr.pos(left + total + 2, 8, 0).color(0f, 0f, 0f, 0.25f).endVertex();
+        wr.pos(left + total + 2, -1, 0).color(0f, 0f, 0f, 0.25f).endVertex();
+        tess.draw();
+
+        // The mark: a small crystal, drawn rather than a glyph so it does not
+        // depend on the font having a snowflake character.
+        float cx = left + mark / 2.0F;
+        float cy = 3.5F;
+        float r = mark / 2.0F;
+        float ir = r * 0.55F;
+        wr.begin(7, DefaultVertexFormats.POSITION_COLOR);
+        wr.pos(cx, cy - r, 0).color(0.69f, 0.91f, 1f, 1f).endVertex();
+        wr.pos(cx - ir, cy, 0).color(0.44f, 0.84f, 1f, 1f).endVertex();
+        wr.pos(cx, cy + r, 0).color(0.18f, 0.50f, 0.65f, 1f).endVertex();
+        wr.pos(cx + ir, cy, 0).color(0.44f, 0.84f, 1f, 1f).endVertex();
+        tess.draw();
+
+        GlStateManager.enableTexture2D();
+        fr.drawString(text, left + mark + gapAfterMark, 0, 0xFFFFFF);
+
+        GlStateManager.enableDepth();
+        GlStateManager.depthMask(true);
+        GlStateManager.disableBlend();
+        GlStateManager.enableLighting();
+        GlStateManager.color(1f, 1f, 1f, 1f);
+        GlStateManager.popMatrix();
     }
 
     /** Billboarded label at a world position, drawn like a vanilla nametag. */

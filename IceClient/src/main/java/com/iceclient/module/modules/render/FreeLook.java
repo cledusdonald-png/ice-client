@@ -60,8 +60,38 @@ public class FreeLook extends Module {
     */
    @SubscribeEvent
    public void onRenderTick(TickEvent.RenderTickEvent event) {
-      if(active && this.mc.renderGlobal != null) {
+      if(!active) {
+         return;
+      }
+
+      if(this.mc.renderGlobal != null) {
          this.mc.renderGlobal.setDisplayListEntitiesDirty();
+      }
+
+   }
+
+   /**
+    * Re-aims billboarded rendering at the FreeLook camera.
+    *
+    * <p>Everything billboarded -- nametags, waypoint labels, patch crumb coords
+    * -- turns to face {@code RenderManager.playerViewY/X}. Those are taken from
+    * the PLAYER's rotation, which FreeLook deliberately does not move, so labels
+    * keep facing where your body points while you look from somewhere else.
+    * Swing round behind and they go edge-on, then invisible: "nametags disappear
+    * in freelook".
+    *
+    * <p>This has to run <em>here</em> rather than on a render tick. The values
+    * are rewritten by {@code RenderManager.cacheActiveRenderInfo} during the
+    * world render, so anything set earlier in the frame is overwritten before a
+    * single label is drawn -- which is exactly why the previous attempt changed
+    * nothing. HIGHEST priority so it lands before the modules that draw labels
+    * in this same event.
+    */
+   @SubscribeEvent(priority = net.minecraftforge.fml.common.eventhandler.EventPriority.HIGHEST)
+   public void onRenderWorldLast(net.minecraftforge.client.event.RenderWorldLastEvent event) {
+      if(active && this.mc.getRenderManager() != null) {
+         this.mc.getRenderManager().playerViewY = camYaw;
+         this.mc.getRenderManager().playerViewX = camPitch;
       }
    }
 

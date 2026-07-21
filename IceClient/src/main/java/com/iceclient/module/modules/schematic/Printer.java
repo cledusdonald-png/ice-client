@@ -43,6 +43,22 @@ import net.minecraftforge.fml.common.gameevent.TickEvent.Phase;
  */
 public class Printer extends Module {
 
+   /**
+    * Which placement loop runs.
+    *
+    * <p>"Schematica" hands everything to the mod's own printer -- proven, but a
+    * closed box that decides its own ordering and cannot be told about
+    * orientation. "Ice" runs {@link PrintEngine}: bottom-to-top so a layer never
+    * goes down before its support, a held-item packet per placement so the
+    * server places what we mean, inventory pulled into the hotbar, and a look
+    * packet before directional blocks so dispensers and repeaters face the way
+    * the schematic asks regardless of which way the cannon points.
+    *
+    * <p>Both are kept so they can be compared on the same build rather than by
+    * memory of how the other one felt.
+    */
+   private final com.iceclient.setting.ModeSetting engine =
+         this.addMode("Engine", "Ice", "Ice", "Schematica");
    private final NumberSetting placeDistance = this.addNumber("Place Distance", 5.0D, 1.0D, 9.0D, 1.0D);
    private final BooleanSetting placeInstantly = this.addBool("Place Instantly", true);
    private final NumberSetting placeDelay = this.addNumber("Place Delay", 0.0D, 0.0D, 20.0D, 1.0D);
@@ -71,9 +87,30 @@ public class Printer extends Module {
 
    private int autoTickCooldown;
    private int breakCooldown;
+   private final com.iceclient.schematica.PrintEngine engineImpl = new com.iceclient.schematica.PrintEngine();
+
+   /** Snapshots the settings the engine needs into its plain config object. */
+   private com.iceclient.schematica.PrintEngine.Config buildEngineConfig() {
+      com.iceclient.schematica.PrintEngine.Config c = new com.iceclient.schematica.PrintEngine.Config();
+      c.placeDistance = this.placeDistance.get();
+      c.placeInstantly = this.placeInstantly.get();
+      // Even "instantly" needs a ceiling, or one tick tries to place the whole
+      // queue and the server drops you for packet spam.
+      c.packetLimit = 64;
+      c.delay = this.placeDelay.getInt();
+      c.placeAdjacent = this.placeAdjacent.get();
+      c.replaceWrong = this.breakWrong.get();
+      c.breakInstantly = this.breakInstantly.get();
+      c.keepSlot = false;
+      c.useInventory = true;
+      c.orientBlocks = true;
+      c.slots = this.slots();
+      return c;
+   }
 
    public Printer() {
       super("Printer", "Auto-places the loaded schematic", ModuleCategory.FACTIONS);
+      this.engine.inSection("GENERAL");
       this.placeDistance.inSection("GENERAL");
       this.placeInstantly.inSection("GENERAL");
       this.placeDelay.inSection("GENERAL");
@@ -144,16 +181,30 @@ public class Printer extends Module {
       if(this.isEnabled() && event.phase == Phase.END) {
          if(this.mc.thePlayer != null && this.mc.theWorld != null && this.mc.playerController != null) {
             if(SchematicaBridge.isAvailable() && SchematicaBridge.hasSchematic()) {
-               // Schematica's own clearing is always off: its rule is "state
-               // differs", which eats repeaters and pistons. runBreaker does the
-               // clearing with rules that can tell those apart.
-               SchematicaBridge.applyPrinterScalars(this.placeDistance.getInt(), this.placeInstantly.get(),
-                     this.placeDelay.getInt(), this.timeout.getInt(), this.placeAdjacent.get(),
-                     false, false);
-               SchematicaBridge.setPrinterEnabled(true);
+               boolean ice = this.engine.is("Ice");
 
-               if(this.mc.currentScreen == null && !SchematicaBridge.isPrinting()) {
-                  SchematicaBridge.setPrinting(true);
+               if(ice) {
+                  // Schematica's loop must be off, or both place into the same
+                  // holes and every block gets a duplicate packet.
+                  if(SchematicaBridge.isPrinting()) {
+                     SchematicaBridge.setPrinting(false);
+                  }
+
+                  if(this.mc.currentScreen == null) {
+                     this.engineImpl.tick(this.buildEngineConfig());
+                  }
+               } else {
+                  // Schematica's own clearing is always off: its rule is "state
+                  // differs", which eats repeaters and pistons. runBreaker does
+                  // the clearing with rules that can tell those apart.
+                  SchematicaBridge.applyPrinterScalars(this.placeDistance.getInt(), this.placeInstantly.get(),
+                        this.placeDelay.getInt(), this.timeout.getInt(), this.placeAdjacent.get(),
+                        false, false);
+                  SchematicaBridge.setPrinterEnabled(true);
+
+                  if(this.mc.currentScreen == null && !SchematicaBridge.isPrinting()) {
+                     SchematicaBridge.setPrinting(true);
+                  }
                }
 
                if(this.mc.currentScreen == null) {

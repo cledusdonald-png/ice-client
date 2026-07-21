@@ -16,6 +16,7 @@
     "MixinGuiScreen",
     "MixinPlayerControllerMP",
     "MixinBlockBreakable",
-    "MixinGuiChat"
+    "MixinGuiChat",
+    "MixinRenderManager"
   ]
 }
