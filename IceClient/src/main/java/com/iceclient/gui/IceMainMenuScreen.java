@@ -8,9 +8,30 @@ import net.minecraft.client.gui.GuiOptions;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.GuiSelectWorld;
 import net.minecraft.client.renderer.GlStateManager;
+import net.minecraft.util.ResourceLocation;
 import org.lwjgl.opengl.GL11;
 
 public class IceMainMenuScreen extends GuiScreen {
+
+   /** Backdrop art. Drawn cover-fit, so it fills any window without stretching. */
+   private static final ResourceLocation BG =
+         new ResourceLocation("iceclient", "textures/gui/menu_bg.png");
+   private static final float BG_ASPECT = 1024.0F / 576.0F;
+
+   /** Minecraft's font has no smaller size, so the news panel is scaled down. */
+   private static final float NEWS_SCALE = 0.7F;
+
+   /**
+    * What changed in this build. Update this when releasing -- it is the first
+    * thing anyone sees, so a stale list is worse than none.
+    */
+   private static final String[][] NEWS = new String[][]{
+         {"Printer breaks safely", "Clears wrong blocks, spares redstone"},
+         {"Pistons protected", "Never broken mid-extension"},
+         {"One auto-tick", "Two were fighting over repeaters"},
+         {"Patch Crumbs rebuilt", "Correct Y, every breach at once"},
+         {"New menu + launcher", "Sections, and this backdrop"}};
+
    private static final int BG_TOP = -16447474;
    private static final int BG_BOT = -16115674;
    private static final int ICE = -9447681;
@@ -58,32 +79,141 @@ public class IceMainMenuScreen extends GuiScreen {
    }
 
    public void drawScreen(int mouseX, int mouseY, float partialTicks) {
-      this.drawGradientRect(0, 0, this.width, this.height, -16447474, -16115674);
-      double t = (double)System.currentTimeMillis() / 1000.0D;
-      this.glow((float)this.width * 0.32F + (float)Math.sin(t * 0.25D) * 40.0F, (float)this.height * 0.3F, 200.0F, 576505599);
-      this.glow((float)this.width * 0.7F + (float)Math.cos(t * 0.2D) * 36.0F, (float)this.height * 0.62F, 240.0F, 439320486);
-      int logoCy = this.height / 2 - 92;
+      this.drawBackground();
+
+      int logoCy = this.height / 2 - 96;
       this.drawCrystal((float)this.width / 2.0F, (float)logoCy, 26.0F);
       this.drawWordmark(this.width / 2, logoCy + 34);
-      String tag = "Factions tooling, sharpened.";
-      this.fontRendererObj.drawString(tag, this.width / 2 - this.fontRendererObj.getStringWidth(tag) / 2, logoCy + 74, -8087640);
+
+      String tag = "COLD.  CALCULATED.  DEADLY.";
+      this.fontRendererObj.drawStringWithShadow(tag,
+            (float)(this.width / 2 - this.fontRendererObj.getStringWidth(tag) / 2),
+            (float)(logoCy + 76), -8087640);
+
+      // Divider, matching the launcher's snowflake rule.
+      int ry = logoCy + 92;
+      int half = 78;
+      drawRect(this.width / 2 - half, ry, this.width / 2 - 10, ry + 1, 1157627903);
+      drawRect(this.width / 2 + 10, ry, this.width / 2 + half, ry + 1, 1157627903);
+
+      this.drawNews();
 
       for(IceMainMenuScreen.Item it : this.items) {
          boolean hov = it.hit(mouseX, mouseY);
-         this.roundRect(it.x, it.y, it.x + it.w, it.y + it.h, 5.0F, hov?677168895:352321535);
-         if(hov) {
-            this.roundBorder(it.x, it.y, it.x + it.w, it.y + it.h, 5.0F, 866773503);
-            drawRect(it.x, it.y + 5, it.x + 2, it.y + it.h - 5, -9447681);
-         }
+         this.roundRect(it.x, it.y, it.x + it.w, it.y + it.h, 5.0F, hov ? 0xF0123449 : 0xD00A1B2C);
+         this.roundBorder(it.x, it.y, it.x + it.w, it.y + it.h, 5.0F, hov ? 0xFF6FD6FF : 0x40A9E9FF);
 
          int tw = this.fontRendererObj.getStringWidth(it.label);
          this.fontRendererObj.drawStringWithShadow(it.label, (float)(it.x + it.w / 2 - tw / 2), (float)(it.y + it.h / 2 - 4), hov?-1379073:-2890766);
       }
 
-      this.fontRendererObj.drawString("Ice Client v0.1.0", 6, this.height - 12, -8087640);
+      this.fontRendererObj.drawString("Ice Client v" + com.iceclient.IceClient.displayVersion(), 6, this.height - 12, -8087640);
       String mcv = "Minecraft 1.8.9";
       this.fontRendererObj.drawString(mcv, this.width - this.fontRendererObj.getStringWidth(mcv) - 6, this.height - 12, -12694952);
       super.drawScreen(mouseX, mouseY, partialTicks);
+   }
+
+   /**
+    * Fills the screen with the backdrop art, then darkens it.
+    *
+    * <p>Cover-fit rather than stretched: the texture coordinates are inset on
+    * whichever axis has spare room, so the image is cropped instead of squashed
+    * at window shapes that do not match its 16:9. The scrim on top is what makes
+    * white text readable over a bright aurora -- without it the menu is pretty
+    * and unusable.
+    */
+   private void drawBackground() {
+      float screenAspect = (float)this.width / (float)this.height;
+      float u0 = 0.0F;
+      float u1 = 1.0F;
+      float v0 = 0.0F;
+      float v1 = 1.0F;
+
+      if(screenAspect > BG_ASPECT) {
+         float vh = BG_ASPECT / screenAspect;
+         v0 = (1.0F - vh) / 2.0F;
+         v1 = v0 + vh;
+      } else {
+         float uw = screenAspect / BG_ASPECT;
+         u0 = (1.0F - uw) / 2.0F;
+         u1 = u0 + uw;
+      }
+
+      this.mc.getTextureManager().bindTexture(BG);
+      GlStateManager.enableTexture2D();
+      GlStateManager.disableLighting();
+      GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+
+      GL11.glBegin(7);
+      GL11.glTexCoord2f(u0, v1);
+      GL11.glVertex2f(0.0F, (float)this.height);
+      GL11.glTexCoord2f(u1, v1);
+      GL11.glVertex2f((float)this.width, (float)this.height);
+      GL11.glTexCoord2f(u1, v0);
+      GL11.glVertex2f((float)this.width, 0.0F);
+      GL11.glTexCoord2f(u0, v0);
+      GL11.glVertex2f(0.0F, 0.0F);
+      GL11.glEnd();
+
+      // Darker at the edges than the middle, so the art still reads behind the
+      // logo while the buttons and corners stay legible.
+      this.drawGradientRect(0, 0, this.width, this.height / 2, 0x66000000, 0x33000000);
+      this.drawGradientRect(0, this.height / 2, this.width, this.height, 0x33000000, 0x99000000);
+   }
+
+   /**
+    * Recent changes, mirroring the launcher's news card.
+    *
+    * <p>Drawn at {@link #NEWS_SCALE} and sized from the widest line it actually
+    * contains. The first version hardcoded a width and drew at full size, so
+    * longer entries ran straight across the menu buttons -- the panel has to be
+    * measured from its content, not guessed.
+    */
+   private void drawNews() {
+      String[][] lines = NEWS;
+
+      float s = NEWS_SCALE;
+      int widest = this.fontRendererObj.getStringWidth("LATEST NEWS");
+
+      for(String[] l : lines) {
+         widest = Math.max(widest, this.fontRendererObj.getStringWidth(l[0]));
+         widest = Math.max(widest, this.fontRendererObj.getStringWidth(l[1]));
+      }
+
+      int pad = 9;
+      int w = (int)((float)widest * s) + pad * 2;
+
+      // Never reach the centre column, whatever the text says.
+      int limit = this.width / 2 - 118 - 14;
+      if(limit > 60 && w > limit) {
+         w = limit;
+      }
+
+      int lineH = (int)(9.0F * s) + 1;
+      int entryH = lineH * 2 + 4;
+      int x = 14;
+      int h = pad * 2 + lineH + 4 + lines.length * entryH;
+      int y = this.height / 2 - h / 2 + 10;
+
+      this.roundRect(x, y, x + w, y + h, 5.0F, 0xC00A1B2C);
+      this.roundBorder(x, y, x + w, y + h, 5.0F, 0x40A9E9FF);
+
+      this.drawScaled("LATEST NEWS", x + pad, y + pad, s, 0xFF6FD6FF);
+
+      for(int i = 0; i < lines.length; ++i) {
+         int ly = y + pad + lineH + 5 + i * entryH;
+         this.drawScaled(lines[i][0], x + pad, ly, s, -1379073);
+         this.drawScaled(lines[i][1], x + pad, ly + lineH, s, 0xFF7D8DA0);
+      }
+   }
+
+   /** Draws text at a fraction of the font's size, anchored top-left. */
+   private void drawScaled(String text, int x, int y, float scale, int color) {
+      GlStateManager.pushMatrix();
+      GlStateManager.translate((float)x, (float)y, 0.0F);
+      GlStateManager.scale(scale, scale, 1.0F);
+      this.fontRendererObj.drawStringWithShadow(text, 0.0F, 0.0F, color);
+      GlStateManager.popMatrix();
    }
 
    private void drawWordmark(int centerX, int y) {

@@ -12,7 +12,6 @@ import com.iceclient.module.modules.factions.RaidingSounds;
 import com.iceclient.module.modules.groups.PingLocation;
 import com.iceclient.module.modules.groups.ShareClipboard;
 import com.iceclient.module.modules.groups.FocusPlayer;
-import com.iceclient.module.modules.factions.AutoTickModule;
 import com.iceclient.module.modules.factions.BreadcrumbsModule;
 import com.iceclient.module.modules.factions.MissingBlockEspModule;
 import com.iceclient.module.modules.factions.PatchCrumbsModule;
@@ -147,7 +146,11 @@ public class ModuleManager {
       tag(register(new SchematicModule()), ModuleCategory.PRINTER, "Printer");
       tag(register(new Printer()), ModuleCategory.PRINTER, "Printer");
       tag(register(new MissingBlockEspModule()), ModuleCategory.PRINTER, "Printer");
-      tag(register(new AutoTickModule()), ModuleCategory.PRINTER, "Printer");
+      // AutoTickModule is deliberately not registered any more. Printer has its
+      // own Auto Tick and both clicked the same repeaters, each undoing the
+      // other's change -- a repeater would flip between two delays and never
+      // settle on the one the schematic asked for. Ticking belongs with
+      // printing, so the standalone module is the duplicate.
       tag(register(new DirectionHud()), ModuleCategory.HUD, (String)null);
       tag(register(new PingHud()), ModuleCategory.HUD, (String)null);
       tag(register(new ServerIpHud()), ModuleCategory.HUD, (String)null);

@@ -528,7 +528,7 @@ public class ClickGuiScreen extends GuiScreen {
          this.fontRendererObj.drawStringWithShadow(n.label, (float)(n.x + 10), (float)(n.y + n.h / 2 - 4), col);
       }
 
-      this.fontRendererObj.drawString("v0.1", 14, this.panelH - 46, -11642264);
+      this.fontRendererObj.drawString("v" + com.iceclient.IceClient.displayVersion(), 14, this.panelH - 46, -11642264);
    }
 
    private void drawHeaderModules() {
@@ -1511,8 +1511,9 @@ public class ClickGuiScreen extends GuiScreen {
       this.schemListX = this.contentX;
       this.schemListY = top;
       this.schemListW = this.contentW * 38 / 100;
-      // Leave room under the list for the selection label and its two rows.
-      this.schemListH = avail - labelH - 2 * bh - gap - 2;
+      // Full height now that the selection block has gone -- more files visible
+      // without scrolling, which is what the space is actually worth.
+      this.schemListH = avail;
 
       int colX = this.schemListX + this.schemListW + 10;
       int colW = this.contentX + this.contentW - colX;
@@ -1576,24 +1577,21 @@ public class ClickGuiScreen extends GuiScreen {
          this.cardAssistB = y + bh + 4;
       }
 
-      // --- SELECTION, under the file list ---
-      this.lblSelectionY = this.schemListY + this.schemListH + 6;
-      this.cardSelT = this.lblSelectionY - 4;
-      int sy = this.lblSelectionY + labelH;
-      this.cardSelB = sy + 2 * bh + gap + 4;
-      int third = (this.schemListW - gap * 2) / 3;
-      this.sButtons.add(new ClickGuiScreen.SButton(25, this.schemListX, sy, third, bh, "Set A"));
-      this.sButtons.add(new ClickGuiScreen.SButton(26, this.schemListX + third + gap, sy, third, bh, "Set B"));
-      this.sButtons.add(new ClickGuiScreen.SButton(27, this.schemListX + 2 * (third + gap), sy, third, bh, "Clear"));
-      this.sButtons.add(new ClickGuiScreen.SButton(29, this.schemListX, sy + bh + gap, this.schemListW, bh, "Save Selection"));
+      // Selection tools (Set A/B, Save Selection) deliberately do not live here
+      // any more. Capturing a region into a new schematic is a different job
+      // from loading and printing one, and it was taking a third of the panel
+      // for something you do once a month. It stays available on the
+      // SelectionTool module's own keybinds.
+      this.lblSelectionY = -100;
+      this.cardSelT = -100;
+      this.cardSelB = -100;
 
       // --- bottom strip ---
       int by2 = this.contentY + this.contentH - bottomRow;
-      int bw = (this.contentW - 3 * gap) / 4;
+      int bw = (this.contentW - 2 * gap) / 3;
       this.sButtons.add(new ClickGuiScreen.SButton(7, this.contentX, by2, bw, bottomRow - 2, "Render"));
       this.sButtons.add(new ClickGuiScreen.SButton(11, this.contentX + bw + gap, by2, bw, bottomRow - 2, "Unload"));
-      this.sButtons.add(new ClickGuiScreen.SButton(9, this.contentX + 2 * (bw + gap), by2, bw, bottomRow - 2, "Test Box"));
-      this.sButtons.add(new ClickGuiScreen.SButton(10, this.contentX + 3 * (bw + gap), by2, bw, bottomRow - 2, "Folder"));
+      this.sButtons.add(new ClickGuiScreen.SButton(10, this.contentX + 2 * (bw + gap), by2, bw, bottomRow - 2, "Folder"));
    }
 
    /**
@@ -1839,8 +1837,6 @@ public class ClickGuiScreen extends GuiScreen {
          this.roundRect(cardL, this.cardMoveT, cardR, this.cardMoveB, 4.0F, -14803426);
          this.roundRect(cardL, this.cardTransT, cardR, this.cardTransB, 4.0F, -14803426);
          this.roundRect(cardL, this.cardAssistT, cardR, this.cardAssistB, 4.0F, -14803426);
-         this.roundRect(this.schemListX - 6, this.cardSelT, this.schemListX + this.schemListW + 6,
-               this.cardSelB, 4.0F, -14803426);
 
          // Every Y here comes from layoutSchematic, so labels cannot drift into
          // the buttons they belong to.
@@ -1860,7 +1856,6 @@ public class ClickGuiScreen extends GuiScreen {
 
          this.fontRendererObj.drawStringWithShadow("TRANSFORM", (float)colX, (float)this.lblTransformY, -8088413);
          this.fontRendererObj.drawStringWithShadow("ASSISTS", (float)colX, (float)this.lblAssistsY, -8088413);
-         this.fontRendererObj.drawStringWithShadow("SELECTION", (float)this.schemListX, (float)this.lblSelectionY, -8088413);
 
          this.drawButtons(mouseX, mouseY);
 

@@ -9,11 +9,15 @@ import com.iceclient.setting.KeybindSetting;
 import com.iceclient.setting.NumberSetting;
 import java.util.Map.Entry;
 import net.minecraft.block.Block;
+import net.minecraft.block.BlockPistonBase;
+import net.minecraft.block.BlockPistonExtension;
+import net.minecraft.block.BlockPistonMoving;
 import net.minecraft.block.BlockRedstoneComparator;
 import net.minecraft.block.BlockRedstoneRepeater;
 import net.minecraft.block.BlockTrapDoor;
 import net.minecraft.block.properties.IProperty;
 import net.minecraft.block.state.IBlockState;
+import net.minecraft.init.Blocks;
 import net.minecraft.item.ItemBlock;
 import net.minecraft.item.ItemStack;
 import net.minecraft.network.play.client.C09PacketHeldItemChange;
@@ -44,8 +48,10 @@ public class Printer extends Module {
    private final NumberSetting placeDelay = this.addNumber("Place Delay", 0.0D, 0.0D, 20.0D, 1.0D);
    private final NumberSetting timeout = this.addNumber("Timeout", 2.0D, 0.0D, 20.0D, 1.0D);
    private final BooleanSetting placeAdjacent = this.addBool("Place Adjacent", true);
-   private final BooleanSetting clearExtra = this.addBool("Clear Extra Blocks", false);
-   private final BooleanSetting clearInstantly = this.addBool("Clear Instantly", false);
+   private final BooleanSetting breakWrong = this.addBool("Break Wrong Blocks", true);
+   private final BooleanSetting removeExtra = this.addBool("Remove Extra Blocks", false);
+   private final BooleanSetting breakInstantly = this.addBool("Break Instantly", false);
+   private final NumberSetting breakDelay = this.addNumber("Break Delay", 4.0D, 0.0D, 20.0D, 1.0D);
    private final BooleanSetting autoTick = this.addBool("Auto Tick", true);
    private final BooleanSetting aTickTrapdoors = this.addBool("Tick Trapdoors", true);
    private final NumberSetting autoTickTimeout = this.addNumber("Auto Tick Timeout", 2.0D, 0.0D, 20.0D, 1.0D);
@@ -64,6 +70,7 @@ public class Printer extends Module {
    private final BooleanSetting slot9 = this.addBool("Slot 9", true);
 
    private int autoTickCooldown;
+   private int breakCooldown;
 
    public Printer() {
       super("Printer", "Auto-places the loaded schematic", ModuleCategory.FACTIONS);
@@ -72,8 +79,10 @@ public class Printer extends Module {
       this.placeDelay.inSection("GENERAL");
       this.timeout.inSection("GENERAL");
       this.placeAdjacent.inSection("GENERAL");
-      this.clearExtra.inSection("CLEAR");
-      this.clearInstantly.inSection("CLEAR");
+      this.breakWrong.inSection("CLEAR");
+      this.removeExtra.inSection("CLEAR");
+      this.breakInstantly.inSection("CLEAR");
+      this.breakDelay.inSection("CLEAR");
       this.autoTick.inSection("AUTO TICK");
       this.aTickTrapdoors.inSection("AUTO TICK");
       this.autoTickTimeout.inSection("AUTO TICK");
@@ -89,7 +98,9 @@ public class Printer extends Module {
       this.slot8.inSection("HOTBAR");
       this.slot9.inSection("HOTBAR");
 
-      this.clearInstantly.visibleWhen(this.clearExtra::get);
+      this.removeExtra.visibleWhen(this.breakWrong::get);
+      this.breakInstantly.visibleWhen(this.breakWrong::get);
+      this.breakDelay.visibleWhen(this.breakWrong::get);
       this.aTickTrapdoors.visibleWhen(this.autoTick::get);
       this.autoTickTimeout.visibleWhen(this.autoTick::get);
 
@@ -133,17 +144,28 @@ public class Printer extends Module {
       if(this.isEnabled() && event.phase == Phase.END) {
          if(this.mc.thePlayer != null && this.mc.theWorld != null && this.mc.playerController != null) {
             if(SchematicaBridge.isAvailable() && SchematicaBridge.hasSchematic()) {
+               // Schematica's own clearing is always off: its rule is "state
+               // differs", which eats repeaters and pistons. runBreaker does the
+               // clearing with rules that can tell those apart.
                SchematicaBridge.applyPrinterScalars(this.placeDistance.getInt(), this.placeInstantly.get(),
                      this.placeDelay.getInt(), this.timeout.getInt(), this.placeAdjacent.get(),
-                     this.clearExtra.get(), this.clearInstantly.get());
+                     false, false);
                SchematicaBridge.setPrinterEnabled(true);
 
                if(this.mc.currentScreen == null && !SchematicaBridge.isPrinting()) {
                   SchematicaBridge.setPrinting(true);
                }
 
-               if(this.autoTick.get() && this.mc.currentScreen == null) {
-                  this.runAutoTick();
+               if(this.mc.currentScreen == null) {
+                  // Break before ticking: a wrong block occupying the spot has
+                  // to go before anything can be placed and then ticked there.
+                  if(this.breakWrong.get()) {
+                     this.runBreaker();
+                  }
+
+                  if(this.autoTick.get()) {
+                     this.runAutoTick();
+                  }
                }
             }
          }
@@ -153,7 +175,87 @@ public class Printer extends Module {
    private void pushFullConfig() {
       SchematicaBridge.applyPrinterConfig(this.placeDistance.getInt(), this.placeInstantly.get(),
             this.placeDelay.getInt(), this.timeout.getInt(), this.placeAdjacent.get(),
-            this.clearExtra.get(), this.clearInstantly.get(), this.slots());
+            false, false, this.slots());
+   }
+
+   /**
+    * Breaks blocks that are the wrong <em>block</em>, and nothing else.
+    *
+    * <p>Schematica's own clearing is left switched off and this runs instead,
+    * because its rule is "world state differs from schematic state", which is
+    * far too broad. A repeater on the wrong delay and a piston mid-extension
+    * both differ from the schematic while being exactly the blocks you must not
+    * touch -- breaking the repeater destroys it before auto-tick can set the
+    * delay, and breaking the piston kills the cannon mid-fire.
+    *
+    * <p>So the rule here is Orbit's: only ever break when the block <em>type</em>
+    * is wrong, never when only its state is, and never go near a piston cell in
+    * either the world or the schematic. Anything the same block as the schematic
+    * wants is left for auto-tick to correct in place.
+    */
+   private void runBreaker() {
+      if(this.breakCooldown-- > 0) {
+         return;
+      }
+
+      BlockPos[] target = new BlockPos[]{null};
+      SchematicaBridge.forEachSchematicBlock(this.placeDistance.get(), (world, want) -> {
+         if(target[0] != null || !this.mc.theWorld.isBlockLoaded(world, false)) {
+            return;
+         }
+
+         Block have = this.mc.theWorld.getBlockState(world).getBlock();
+         if(have == Blocks.air || have.getMaterial().isLiquid()) {
+            return;
+         }
+
+         Block wanted = want == null ? Blocks.air : want.getBlock();
+
+         // Same block: only its state is off, which is auto-tick's job.
+         if(have == wanted) {
+            return;
+         }
+
+         // Pistons are never safe to break -- extended ones always look wrong.
+         if(isPistonCell(have) || isPistonCell(wanted)) {
+            return;
+         }
+
+         // Schematic wants nothing here; that is "extra", a separate choice.
+         if(wanted == Blocks.air && !this.removeExtra.get()) {
+            return;
+         }
+
+         if(this.mc.thePlayer.getDistanceSq(world) > this.placeDistance.get() * this.placeDistance.get()) {
+            return;
+         }
+
+         target[0] = world;
+      });
+
+      if(target[0] != null) {
+         this.mc.playerController.onPlayerDamageBlock(target[0], EnumFacing.UP);
+         if(this.breakInstantly.get()) {
+            this.mc.playerController.onPlayerDestroyBlock(target[0], EnumFacing.UP);
+         }
+
+         this.mc.thePlayer.swingItem();
+         this.breakCooldown = this.breakDelay.getInt();
+      }
+   }
+
+   /**
+    * Piston bases, heads and the moving-block entity.
+    *
+    * <p>An extended piston is a base with {@code extended=true} plus a separate
+    * head block that no schematic contains, so every one of them reads as
+    * "wrong" to a printer. Skipping the whole cell is simpler and safer than
+    * trying to work out which half is legitimately misplaced.
+    */
+   private static boolean isPistonCell(Block b) {
+      return b instanceof BlockPistonBase
+            || b instanceof BlockPistonExtension
+            || b instanceof BlockPistonMoving;
    }
 
    private void runAutoTick() {

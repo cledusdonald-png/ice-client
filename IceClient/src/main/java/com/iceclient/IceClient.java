@@ -21,14 +21,55 @@ import org.lwjgl.input.Keyboard;
 @Mod(
    modid = "iceclient",
    name = "Ice Client",
-   version = "0.1.0",
+   version = IceClient.VERSION,
    acceptedMinecraftVersions = "[1.8.9]"
 )
 public class IceClient {
    public static final String MODID = "iceclient";
    public static final String NAME = "Ice Client";
-   public static final String VERSION = "0.1.0";
+
+   /**
+    * Build version.
+    *
+    * <p>An annotation value has to be a compile-time constant, so this cannot
+    * simply be read from the jar -- which is why the number lived in four
+    * hard-coded places and the main menu still claimed v0.1.0 several releases
+    * later. It is declared once here and everything else reads
+    * {@link #displayVersion()}, so the only edit when releasing is this line
+    * and {@code mod_version} in gradle.properties.
+    */
+   public static final String VERSION = "1.0.4";
+
    public static final Logger LOGGER = LogManager.getLogger("Ice Client");
+
+   /** Cached once; Forge's mod list does not change after load. */
+   private static String resolvedVersion;
+
+   /**
+    * The version to show a user.
+    *
+    * <p>Prefers what Forge actually loaded, which comes from mcmod.info and so
+    * from the Gradle build -- if this ever disagrees with {@link #VERSION} the
+    * jar is the truth, and the menu should say what is really running.
+    */
+   public static String displayVersion() {
+      if(resolvedVersion == null) {
+         resolvedVersion = VERSION;
+
+         try {
+            net.minecraftforge.fml.common.ModContainer c =
+                  net.minecraftforge.fml.common.Loader.instance().getIndexedModList().get(MODID);
+            if(c != null && c.getVersion() != null && !c.getVersion().isEmpty()
+                  && !c.getVersion().equals("${version}")) {
+               resolvedVersion = c.getVersion();
+            }
+         } catch (Throwable t) {
+            // Dev environment without a built mcmod.info -- the constant is fine.
+         }
+      }
+
+      return resolvedVersion;
+   }
    private static final int GUI_KEY = 54;
    private static final int HUD_EDITOR_KEY = 157;
 
@@ -37,7 +78,7 @@ public class IceClient {
 
    @EventHandler
    public void init(FMLInitializationEvent event) {
-      LOGGER.info("Booting up Ice Client v0.1.0");
+      LOGGER.info("Booting up Ice Client v" + displayVersion());
       clearStuckSmoothCamera();
       ModuleManager.init();
       MinecraftForge.EVENT_BUS.register(this);
