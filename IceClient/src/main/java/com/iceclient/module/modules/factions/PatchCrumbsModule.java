@@ -54,15 +54,14 @@ import java.util.Set;
  */
 public class PatchCrumbsModule extends Module {
 
-   /** A TNT removed with this much fuse left detonated; more than this and it
-    *  just left render distance. Two ticks of slack for scan timing. */
-   private static final int DETONATION_FUSE = 2;
+   /** How long a column keeps being watched after the last round arrived in it.
+    *  Long enough to cover a full volley, short enough that a spot stops being
+    *  re-marked once the shooting has moved elsewhere. */
+   private static final long COLUMN_TTL_MS = 4500L;
 
    /** Below this many ms remaining a crumb fades rather than vanishing, so it
     *  never disappears while you are still lining a patch up on it. */
    private static final long FADE_MS = 1000L;
-
-   private final ModeSetting detect = (ModeSetting)this.addSetting(new ModeSetting("Detect", "Detonation", new String[]{"Detonation", "Velocity", "Settled"}));
    private final ModeSetting direction = (ModeSetting)this.addSetting(new ModeSetting("Direction", "Both", new String[]{"Auto", "Both", "North/South", "East/West"}));
    private final BooleanSetting dispenserCheck = (BooleanSetting)this.addSetting(new BooleanSetting("Dispenser check", false));
    private final NumberSetting keepSeconds = (NumberSetting)this.addSetting(new NumberSetting("Keep (s)", 10.0D, 1.0D, 60.0D, 1.0D));
@@ -87,8 +86,8 @@ public class PatchCrumbsModule extends Module {
    private final BooleanSetting filled = (BooleanSetting)this.addSetting(new BooleanSetting("Full 3D block", true));
    private final BooleanSetting showCoords = (BooleanSetting)this.addSetting(new BooleanSetting("Show coords", true));
 
-   /** Live primed TNT, by entity id, so we can tell what happened when one goes. */
-   private final Map<Integer, Track> tracked = new HashMap<Integer, Track>();
+   /** Columns of incoming TNT currently being watched. */
+   private final List<WallColumn> columns = new ArrayList<WallColumn>();
    private final List<Crumb> crumbs = new ArrayList<Crumb>();
 
    public PatchCrumbsModule() {
@@ -97,13 +96,28 @@ public class PatchCrumbsModule extends Module {
 
    protected void onDisable() {
       this.crumbs.clear();
-      this.tracked.clear();
+      this.columns.clear();
    }
 
-   /** Last known state of one primed TNT. */
-   private static final class Track {
-      double x, y, z, mx, mz;
-      int fuse;
+   /**
+    * One (x,z) column that TNT has arrived in.
+    *
+    * <p>Everything is captured from the <em>first</em> round to reach the column
+    * and then left alone. That is the whole trick: by the time a charge is about
+    * to go off it has already fallen, so its live position is below the wall it
+    * hit, and its velocity has been bent by the impact. The first sighting is
+    * the one that describes the shot.
+    *
+    * <p>Later rounds landing in the same column are folded in rather than
+    * starting their own entry, which is what makes overstacked cannons resolve
+    * to a single patch spot instead of a cluster of markers.
+    */
+   private static final class WallColumn {
+      int x, z;
+      int firstY;
+      double firstVx, firstVz;
+      long expiresAt;
+      final Set<Integer> members = new HashSet<Integer>();
    }
 
    /** One breach worth patching. */
@@ -132,97 +146,64 @@ public class PatchCrumbsModule extends Module {
          }
       }
 
-      if(this.detect.is("Settled")) {
-         this.scanSettled(now);
-      } else {
-         this.scanDetonations(now);
-      }
+      this.scanColumns(now);
    }
 
    /**
-    * Follows every primed TNT and turns the ones that go off into crumbs.
+    * Sorts incoming TNT into columns and raises a crumb once one is sitting on
+    * sand.
     *
-    * <p>"Velocity" is kept as a mode only so older configs still load; it runs
-    * the same detonation tracking, because marking a TNT by its velocity was
-    * the bug rather than a feature.
+    * <p>The sand check is what distinguishes "a round flew past" from "a round
+    * opened the wall here". Cannons throw sand ahead of the charge; when there
+    * is sand or gravel directly under where the first round appeared, that
+    * column is the breach and its Y is the block you need to patch.
     */
-   private void scanDetonations(long now) {
-      Set<Integer> alive = new HashSet<Integer>();
-
+   private void scanColumns(long now) {
       for(Entity entity : this.mc.theWorld.loadedEntityList) {
          if(!(entity instanceof EntityTNTPrimed) || entity.isDead) {
             continue;
          }
 
          EntityTNTPrimed tnt = (EntityTNTPrimed)entity;
-         int id = tnt.getEntityId();
-         alive.add(Integer.valueOf(id));
+         int cx = MathHelper.floor_double(tnt.posX);
+         int cz = MathHelper.floor_double(tnt.posZ);
+         WallColumn col = null;
 
-         Track t = this.tracked.get(Integer.valueOf(id));
-         if(t == null) {
-            t = new Track();
-            this.tracked.put(Integer.valueOf(id), t);
+         for(WallColumn c : this.columns) {
+            if(c.x == cx && c.z == cz) {
+               col = c;
+               break;
+            }
          }
 
-         t.x = tnt.posX;
-         t.y = tnt.posY;
-         t.z = tnt.posZ;
-         t.mx = tnt.motionX;
-         t.mz = tnt.motionZ;
-         t.fuse = tnt.fuse;
+         if(col == null) {
+            col = new WallColumn();
+            col.x = cx;
+            col.z = cz;
+            col.firstY = MathHelper.floor_double(tnt.posY);
+            // Displacement over the last tick. Only the magnitudes are used, to
+            // decide which axis the shot travelled along.
+            col.firstVx = tnt.prevPosX - tnt.posX;
+            col.firstVz = tnt.prevPosZ - tnt.posZ;
+            this.columns.add(col);
+         }
+
+         col.members.add(Integer.valueOf(tnt.getEntityId()));
+         col.expiresAt = now + COLUMN_TTL_MS;
       }
 
-      for(Iterator<Map.Entry<Integer, Track>> it = this.tracked.entrySet().iterator(); it.hasNext();) {
-         Map.Entry<Integer, Track> e = it.next();
-         if(alive.contains(e.getKey())) {
-            continue;
+      for(Iterator<WallColumn> it = this.columns.iterator(); it.hasNext();) {
+         WallColumn c = it.next();
+
+         if(this.isSandLike(c.x, c.firstY - 1, c.z)) {
+            if(!this.dispenserCheck.get() || !this.nearDispenser(c.x, c.firstY, c.z)) {
+               this.addCrumb(c.x, c.firstY, c.z, c.firstVx, c.firstVz, now);
+            }
          }
 
-         Track t = e.getValue();
-         it.remove();
-
-         // Still had fuse left: it left render distance rather than exploding.
-         if(t.fuse > DETONATION_FUSE) {
-            continue;
+         if(now > c.expiresAt) {
+            it.remove();
          }
-
-         int x = MathHelper.floor_double(t.x);
-         int y = MathHelper.floor_double(t.y);
-         int z = MathHelper.floor_double(t.z);
-
-         if(this.dispenserCheck.get() && this.nearDispenser(x, y, z)) {
-            continue;
-         }
-
-         this.addCrumb(x, y, z, t.mx, t.mz, now);
-      }
-   }
-
-   /** Legacy mode: mark sand that has come to rest, rather than the detonation. */
-   private void scanSettled(long now) {
-      for(Entity entity : this.mc.theWorld.loadedEntityList) {
-         if(!(entity instanceof EntityTNTPrimed) || entity.isDead) {
-            continue;
-         }
-
-         EntityTNTPrimed tnt = (EntityTNTPrimed)entity;
-         if(Math.abs(tnt.motionX) > 1.0E-4D || Math.abs(tnt.motionZ) > 1.0E-4D) {
-            continue;
-         }
-
-         int x = MathHelper.floor_double(tnt.posX);
-         int y = MathHelper.floor_double(tnt.posY);
-         int z = MathHelper.floor_double(tnt.posZ);
-
-         if(!this.isSandLike(x, y - 1, z)) {
-            continue;
-         }
-
-         if(this.dispenserCheck.get() && this.nearDispenser(x, y, z)) {
-            continue;
-         }
-
-         this.addCrumb(x, y, z, tnt.motionX, tnt.motionZ, now);
       }
    }
 

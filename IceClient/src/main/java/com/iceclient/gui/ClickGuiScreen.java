@@ -24,11 +24,13 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.renderer.GlStateManager;
@@ -280,13 +282,108 @@ public class ClickGuiScreen extends GuiScreen {
          return a.name.compareToIgnoreCase(b.name);
       });
 
+      List<ClickGuiScreen.Card> visible = new ArrayList();
       for(ClickGuiScreen.Card c : all) {
          if(q.isEmpty() || this.cardMatches(c, q)) {
-            this.cards.add(c);
+            c.section = sectionOf(c);
+            visible.add(c);
+         }
+      }
+
+      // While searching, sections would just get in the way of results.
+      if(!q.isEmpty()) {
+         this.cards.addAll(visible);
+         this.layoutGrid();
+         return;
+      }
+
+      // Bucket by section, keeping SECTION_ORDER's ordering and dropping any
+      // section this tab has nothing in.
+      Map<String, List<ClickGuiScreen.Card>> bySection = new LinkedHashMap();
+      for(String s : SECTION_ORDER) {
+         bySection.put(s, new ArrayList());
+      }
+
+      for(ClickGuiScreen.Card c : visible) {
+         List<ClickGuiScreen.Card> bucket = bySection.get(c.section);
+         if(bucket == null) {
+            bucket = new ArrayList();
+            bySection.put(c.section, bucket);
+         }
+
+         bucket.add(c);
+      }
+
+      for(Map.Entry<String, List<ClickGuiScreen.Card>> e : bySection.entrySet()) {
+         List<ClickGuiScreen.Card> members = e.getValue();
+         if(members.isEmpty()) {
+            continue;
+         }
+
+         ClickGuiScreen.Card head = new ClickGuiScreen.Card();
+         head.header = true;
+         head.name = e.getKey();
+         head.section = e.getKey();
+         head.headerCount = members.size();
+         this.cards.add(head);
+
+         if(!this.collapsed.contains(e.getKey())) {
+            this.cards.addAll(members);
          }
       }
 
       this.layoutGrid();
+   }
+
+   /** Section headers the user has clicked shut. */
+   private final Set<String> collapsed = new HashSet<String>();
+
+   /**
+    * Section display order. Anything not named here is appended under "Other",
+    * so a newly registered module still appears rather than silently vanishing.
+    */
+   private static final String[] SECTION_ORDER = new String[]{
+         "Movement", "Camera", "Visual", "Performance", "World",
+         "Cannoning", "Alerts", "Groups", "Minecadia",
+         "Info", "Combat", "Server",
+         "Printer", "Schematic", "Chat", "Other"};
+
+   /**
+    * Which section a card belongs to.
+    *
+    * <p>Kept here rather than on {@code Module} deliberately: this is a
+    * presentation decision, and putting it in the GUI means regrouping the
+    * menu never means touching 98 module classes.
+    */
+   private static String sectionOf(ClickGuiScreen.Card c) {
+      String n = c.name.toLowerCase();
+
+      if(contains(n, "fly", "sprint", "walk", "slow", "jump", "speed", "step")) return "Movement";
+      if(contains(n, "freelook", "camera", "perspective", "fov", "zoom", "shake")) return "Camera";
+      if(contains(n, "bright", "glass", "water", "saturation", "overlay", "crosshair", "particle", "weather", "skin", "trail", "hitbox", "animation", "hurt")) return "Visual";
+      if(contains(n, "fps", "chunkload", "cull", "ram", "performance", "optim")) return "Performance";
+      if(contains(n, "border", "waypoint", "map", "compass", "coordinate", "direction", "rally")) return "World";
+      if(contains(n, "tnt", "cannon", "crumb", "dispenser", "explosion", "float", "obsidian", "patch")) return "Cannoning";
+      if(contains(n, "alert", "notif", "callout", "sound", "raid")) return "Alerts";
+      if(contains(n, "group", "ping", "focus", "share", "clipboard")) return "Groups";
+      if(contains(n, "minecadia", "soul", "armorset", "faction")) return "Minecadia";
+      if(contains(n, "printer", "missingblock", "autotick", "tick")) return "Printer";
+      if(contains(n, "schem", "selection", "easyplace", "ylevel")) return "Schematic";
+      if(contains(n, "chat", "tooltip", "macro", "screenshot")) return "Chat";
+      if(contains(n, "hud", "counter", "status", "keystroke", "cps", "ping", "tps", "playtime", "scoreboard", "server", "entity", "display", "tags", "scale")) return "Info";
+      if(contains(n, "combo", "target", "reach", "armor", "pot")) return "Combat";
+
+      return "Other";
+   }
+
+   private static boolean contains(String haystack, String... needles) {
+      for(String s : needles) {
+         if(haystack.contains(s)) {
+            return true;
+         }
+      }
+
+      return false;
    }
 
    private boolean cardMatches(ClickGuiScreen.Card c, String q) {
@@ -314,7 +411,25 @@ public class ClickGuiScreen extends GuiScreen {
       int y = 0;
       int col = 0;
 
+      int headerH = 16;
+
       for(ClickGuiScreen.Card c : this.cards) {
+         if(c.header) {
+            // A header owns its own full-width row, so close off whatever row
+            // the previous section left half-filled first.
+            if(col != 0) {
+               col = 0;
+               y += cardH + gap;
+            }
+
+            c.x = this.gridX;
+            c.y = y + 4;
+            c.w = this.gridW;
+            c.h = headerH;
+            y += headerH + gap + 4;
+            continue;
+         }
+
          c.x = this.gridX + col * (cardW + gap);
          c.y = y;
          c.w = cardW;
@@ -460,6 +575,36 @@ public class ClickGuiScreen extends GuiScreen {
 
    }
 
+   /**
+    * A section divider: caret, name, count, and a rule running to the edge.
+    *
+    * <p>The count is the point of it -- collapsed, "VISUAL 6" tells you what is
+    * behind the header without opening it, which is what makes a 31-module tab
+    * readable as four lines.
+    */
+   private void drawSectionHeader(ClickGuiScreen.Card c, int dy, boolean hov) {
+      boolean open = !this.collapsed.contains(c.name);
+      int textCol = hov ? -1379073 : -8088413;
+      int x = c.x + 2;
+
+      String caret = open ? "▾" : "▸";
+      this.fontRendererObj.drawStringWithShadow(caret, (float)x, (float)(dy + 4), open ? -10696961 : textCol);
+      x += 10;
+
+      String label = c.name.toUpperCase();
+      this.fontRendererObj.drawStringWithShadow(label, (float)x, (float)(dy + 4), textCol);
+      x += this.fontRendererObj.getStringWidth(label) + 6;
+
+      String count = String.valueOf(c.headerCount);
+      this.fontRendererObj.drawStringWithShadow(count, (float)x, (float)(dy + 4), -10461088);
+      x += this.fontRendererObj.getStringWidth(count) + 8;
+
+      // Rule fills whatever is left, so headers line up regardless of name length.
+      if(x < c.x + c.w - 2) {
+         drawRect(x, dy + 8, c.x + c.w - 2, dy + 9, 301989887);
+      }
+   }
+
    private void drawGrid(int mouseX, int mouseY) {
       for(ClickGuiScreen.Card c : this.cards) {
          int dy = this.gridY + c.y - this.scrollY;
@@ -473,6 +618,12 @@ public class ClickGuiScreen extends GuiScreen {
 
    private void drawCard(ClickGuiScreen.Card c, int dy, int mouseX, int mouseY) {
       boolean hov = mouseX >= c.x && mouseX <= c.x + c.w && mouseY >= dy && mouseY <= dy + c.h && mouseY >= this.gridY && mouseY <= this.gridY + this.gridH;
+
+      if(c.header) {
+         this.drawSectionHeader(c, dy, hov);
+         return;
+      }
+
       boolean active = c.active();
       this.roundRect(c.x, dy, c.x + c.w, dy + c.h, 4.0F, hov?486539263:218103807);
       if(active) {
@@ -949,6 +1100,16 @@ public class ClickGuiScreen extends GuiScreen {
                      }
                   }
 
+                  // A header collapses its section rather than opening anything.
+                  if(c.header) {
+                     if(!this.collapsed.remove(c.name)) {
+                        this.collapsed.add(c.name);
+                     }
+
+                     this.buildCards();
+                     return;
+                  }
+
                   boolean gear = mouseX >= c.x + c.w - 20 && mouseX <= c.x + c.w - 4 && mouseY >= dy + c.h - 20 && mouseY <= dy + c.h - 4;
                   if(mouseButton != 1 && (mouseButton != 0 || !gear)) {
                      if(mouseButton == 0) {
@@ -1236,7 +1397,18 @@ public class ClickGuiScreen extends GuiScreen {
     */
    private int schemTab = 0;
 
-   private static final String[] SCHEM_TABS = new String[]{"Browser", "Points"};
+   /**
+    * Empty on purpose: the schematic workspace is one page.
+    *
+    * <p>It was split across sub-tabs, which meant tabbing between the file you
+    * just loaded, the position you are nudging and the printer toggle -- three
+    * halves of a single task. Everything is on screen together now. The array
+    * stays so the tab helpers no-op rather than needing to be unpicked.
+    */
+   private static final String[] SCHEM_TABS = new String[0];
+
+   /** Nudge step for the Control page: 1, 8 or 16 blocks. */
+   private int schemStep = 1;
 
    /** Hit box of each sub-tab, filled during layout. */
    private final int[] schemTabX = new int[SCHEM_TABS.length];
@@ -1250,6 +1422,18 @@ public class ClickGuiScreen extends GuiScreen {
    /** Which position axis is being typed on the Browser tab: -1, or 0/1/2. */
    private int editingAxis = -1;
    private String axisInput = "";
+
+   /**
+    * Label positions worked out during layout and reused when drawing.
+    *
+    * <p>These used to be recomputed in the draw method from the same arithmetic,
+    * which drifted the moment either side changed -- labels sat inside buttons.
+    * Layout is the single source of truth now.
+    */
+   private int lblMoveY, lblPosY, lblTransformY, lblAssistsY, lblSelectionY;
+
+   /** Card bounds for each section: {top, bottom} pairs, filled during layout. */
+   private int cardMoveT, cardMoveB, cardTransT, cardTransB, cardAssistT, cardAssistB, cardSelT, cardSelB;
 
    private void layoutSchematicTabs() {
       this.schemTabY = this.contentY + 18;
@@ -1308,57 +1492,234 @@ public class ClickGuiScreen extends GuiScreen {
       this.sButtons.clear();
       this.layoutSchematicTabs();
 
-      if(this.schemTab == 1) {
-         this.layoutPointsPage();
+      this.refreshSchemFiles();
+
+      int gap = 4;
+      int top = this.contentY + 18;
+
+      // The panel shrinks with Minecraft's GUI scale, so nothing here may assume
+      // a height. The right column needs ten rows plus three section labels;
+      // work the row height back from whatever space there actually is, and
+      // clamp it so it stays clickable rather than collapsing to a sliver.
+      int labelH = 11;
+      int bottomRow = 17;
+      int avail = this.contentH - 18 - bottomRow - 6;
+      int rows = 10;
+      int bh = (avail - 3 * labelH - (rows - 1) * gap) / rows;
+      bh = Math.max(11, Math.min(15, bh));
+
+      this.schemListX = this.contentX;
+      this.schemListY = top;
+      this.schemListW = this.contentW * 38 / 100;
+      // Leave room under the list for the selection label and its two rows.
+      this.schemListH = avail - labelH - 2 * bh - gap - 2;
+
+      int colX = this.schemListX + this.schemListW + 10;
+      int colW = this.contentX + this.contentW - colX;
+      int y = top;
+
+      if(SchematicaBridge.isAvailable()) {
+         // --- MOVE ---
+         this.cardMoveT = y - 4;
+         this.lblMoveY = y;
+         y += labelH;
+
+         int stepW = (colW - gap * 2) / 3;
+         this.sButtons.add(new ClickGuiScreen.SButton(30, colX, y, stepW, bh, "1"));
+         this.sButtons.add(new ClickGuiScreen.SButton(31, colX + stepW + gap, y, stepW, bh, "8"));
+         this.sButtons.add(new ClickGuiScreen.SButton(32, colX + 2 * (stepW + gap), y, stepW, bh, "16"));
+         y += bh + gap;
+
+         int nw = (colW - gap * 5) / 6;
+         String[] labels = new String[]{"-X", "+X", "-Y", "+Y", "-Z", "+Z"};
+         for(int i = 0; i < 6; ++i) {
+            this.sButtons.add(new ClickGuiScreen.SButton(i, colX + i * (nw + gap), y, nw, bh, labels[i]));
+         }
+         y += bh + gap;
+
+         this.lblPosY = y;
+         y += labelH;
+
+         this.sButtons.add(new ClickGuiScreen.SButton(6, colX, y, colW, bh, "Move To My Position"));
+         y += bh + gap;
+
+         // --- TRANSFORM ---
+         this.cardMoveB = y - gap + 4;
+         y += 5;
+         this.cardTransT = y - 4;
+         this.lblTransformY = y;
+         y += labelH;
+
+         int half = (colW - gap) / 2;
+         this.sButtons.add(new ClickGuiScreen.SButton(12, colX, y, half, bh, "Rotate CW"));
+         this.sButtons.add(new ClickGuiScreen.SButton(13, colX + half + gap, y, half, bh, "Rotate CCW"));
+         y += bh + gap;
+         this.sButtons.add(new ClickGuiScreen.SButton(14, colX, y, half, bh, "Flip X"));
+         this.sButtons.add(new ClickGuiScreen.SButton(15, colX + half + gap, y, half, bh, "Flip Z"));
+         y += bh + gap;
+         this.sButtons.add(new ClickGuiScreen.SButton(17, colX, y, half, bh, "Copy Pos"));
+         this.sButtons.add(new ClickGuiScreen.SButton(18, colX + half + gap, y, half, bh, "Apply Pos"));
+         y += bh + gap;
+
+         // --- ASSISTS ---
+         this.cardTransB = y - gap + 4;
+         y += 5;
+         this.cardAssistT = y - 4;
+         this.lblAssistsY = y;
+         y += labelH;
+
+         this.sButtons.add(new ClickGuiScreen.SButton(33, colX, y, colW, bh, assistLabel("Printer")));
+         y += bh + gap;
+         this.sButtons.add(new ClickGuiScreen.SButton(34, colX, y, colW, bh, assistLabel("MissingBlockESP")));
+         y += bh + gap;
+         this.sButtons.add(new ClickGuiScreen.SButton(35, colX, y, colW, bh, assistLabel("Schematic Preview")));
+         this.cardAssistB = y + bh + 4;
+      }
+
+      // --- SELECTION, under the file list ---
+      this.lblSelectionY = this.schemListY + this.schemListH + 6;
+      this.cardSelT = this.lblSelectionY - 4;
+      int sy = this.lblSelectionY + labelH;
+      this.cardSelB = sy + 2 * bh + gap + 4;
+      int third = (this.schemListW - gap * 2) / 3;
+      this.sButtons.add(new ClickGuiScreen.SButton(25, this.schemListX, sy, third, bh, "Set A"));
+      this.sButtons.add(new ClickGuiScreen.SButton(26, this.schemListX + third + gap, sy, third, bh, "Set B"));
+      this.sButtons.add(new ClickGuiScreen.SButton(27, this.schemListX + 2 * (third + gap), sy, third, bh, "Clear"));
+      this.sButtons.add(new ClickGuiScreen.SButton(29, this.schemListX, sy + bh + gap, this.schemListW, bh, "Save Selection"));
+
+      // --- bottom strip ---
+      int by2 = this.contentY + this.contentH - bottomRow;
+      int bw = (this.contentW - 3 * gap) / 4;
+      this.sButtons.add(new ClickGuiScreen.SButton(7, this.contentX, by2, bw, bottomRow - 2, "Render"));
+      this.sButtons.add(new ClickGuiScreen.SButton(11, this.contentX + bw + gap, by2, bw, bottomRow - 2, "Unload"));
+      this.sButtons.add(new ClickGuiScreen.SButton(9, this.contentX + 2 * (bw + gap), by2, bw, bottomRow - 2, "Test Box"));
+      this.sButtons.add(new ClickGuiScreen.SButton(10, this.contentX + 3 * (bw + gap), by2, bw, bottomRow - 2, "Folder"));
+   }
+
+   /**
+    * Control page: everything that acts on the loaded schematic.
+    *
+    * <p>Laid out as four labelled panels -- Move, Layer, Transform, Assists --
+    * rather than one run of buttons. Moving and rotating are the same job, so
+    * they sit side by side; the assist toggles are here because you flip them
+    * while lining a build up, not while browsing files.
+    */
+   private void layoutControlPage() {
+      int gap = 6;
+      int bh = 16;
+      int colW = (this.contentW - gap) / 2;
+      int leftX = this.contentX;
+      int rightX = this.contentX + colW + gap;
+      int top = this.contentY + 52;
+
+      // --- MOVE (left) ---
+      int stepW = (colW - gap * 2) / 3;
+      this.sButtons.add(new ClickGuiScreen.SButton(30, leftX, top, stepW, bh, "1"));
+      this.sButtons.add(new ClickGuiScreen.SButton(31, leftX + stepW + gap, top, stepW, bh, "8"));
+      this.sButtons.add(new ClickGuiScreen.SButton(32, leftX + 2 * (stepW + gap), top, stepW, bh, "16"));
+
+      int axisY = top + bh + 12;
+      int nudgeW = (colW - gap * 5) / 6;
+      String[] labels = new String[]{"-X", "+X", "-Y", "+Y", "-Z", "+Z"};
+      for(int i = 0; i < 6; ++i) {
+         this.sButtons.add(new ClickGuiScreen.SButton(i, leftX + i * (nudgeW + gap), axisY, nudgeW, bh, labels[i]));
+      }
+
+      this.sButtons.add(new ClickGuiScreen.SButton(6, leftX, axisY + bh + 26, colW, bh, "Move To My Position"));
+
+      // --- TRANSFORM (right) ---
+      int half = (colW - gap) / 2;
+      this.sButtons.add(new ClickGuiScreen.SButton(12, rightX, top, half, bh, "Rotate CW"));
+      this.sButtons.add(new ClickGuiScreen.SButton(13, rightX + half + gap, top, half, bh, "Rotate CCW"));
+      this.sButtons.add(new ClickGuiScreen.SButton(14, rightX, top + bh + gap, half, bh, "Flip X"));
+      this.sButtons.add(new ClickGuiScreen.SButton(15, rightX + half + gap, top + bh + gap, half, bh, "Flip Z"));
+      this.sButtons.add(new ClickGuiScreen.SButton(17, rightX, top + 2 * (bh + gap), half, bh, "Copy Pos"));
+      this.sButtons.add(new ClickGuiScreen.SButton(18, rightX + half + gap, top + 2 * (bh + gap), half, bh, "Apply Pos"));
+
+      // --- ASSISTS (right, lower) ---
+      int aY = top + 3 * (bh + gap) + 26;
+      this.sButtons.add(new ClickGuiScreen.SButton(33, rightX, aY, colW, bh, assistLabel("Printer")));
+      this.sButtons.add(new ClickGuiScreen.SButton(34, rightX, aY + bh + 4, colW, bh, assistLabel("MissingBlockESP")));
+      this.sButtons.add(new ClickGuiScreen.SButton(35, rightX, aY + 2 * (bh + 4), colW, bh, assistLabel("Schematic Preview")));
+
+      // --- render/unload (bottom strip) ---
+      int by = this.contentY + this.contentH - 20;
+      int third = (this.contentW - gap * 2) / 3;
+      this.sButtons.add(new ClickGuiScreen.SButton(7, this.contentX, by, third, bh, "Render"));
+      this.sButtons.add(new ClickGuiScreen.SButton(11, this.contentX + third + gap, by, third, bh, "Unload"));
+      this.sButtons.add(new ClickGuiScreen.SButton(10, this.contentX + 2 * (third + gap), by, third, bh, "Open Folder"));
+   }
+
+   /** Button label carrying the module's state, since these are toggles. */
+   private static String assistLabel(String moduleName) {
+      Module m = findModule(moduleName);
+      String on = m != null && m.isEnabled() ? "ON" : "OFF";
+      return moduleName + "   " + on;
+   }
+
+   private static Module findModule(String name) {
+      for(Module m : ModuleManager.getModules()) {
+         if(m.getName().equalsIgnoreCase(name)) {
+            return m;
+         }
+      }
+
+      return null;
+   }
+
+   private void toggleAssist(String moduleName) {
+      Module m = findModule(moduleName);
+      if(m != null) {
+         m.toggle();
+         this.schemStatus = m.getName() + (m.isEnabled() ? " on." : " off.");
+         this.layoutSchematic();
+      } else {
+         this.schemStatus = moduleName + " isn't available.";
+      }
+   }
+
+   private void drawControlPage(int mouseX, int mouseY) {
+      if(!SchematicaBridge.isAvailable()) {
+         this.fontRendererObj.drawStringWithShadow("Schematica mod isn\'t installed.",
+               (float)this.contentX, (float)(this.contentY + 44), -8088413);
          return;
       }
 
-      this.refreshSchemFiles();
-      // Below the sub-tab row, which sits at contentY+18 and is 16 tall.
-      int top = this.contentY + 40;
-      int bottomRow = 22;
-      this.schemListX = this.contentX;
-      this.schemListY = top;
-      this.schemListW = this.contentW * 45 / 100;
-      this.schemListH = this.contentH - 40 - bottomRow - 6;
-      int colX = this.schemListX + this.schemListW + 8;
-      int colW = this.contentX + this.contentW - colX;
-      if(SchematicaBridge.isAvailable()) {
-         int rowGap = 20;
-         int by = top + 12;
-         int minusX = colX + colW - 40;
-         int plusX = colX + colW - 18;
-         this.sButtons.add(new ClickGuiScreen.SButton(0, minusX, by, 18, 14, "-"));
-         this.sButtons.add(new ClickGuiScreen.SButton(1, plusX, by, 18, 14, "+"));
-         this.sButtons.add(new ClickGuiScreen.SButton(2, minusX, by + rowGap, 18, 14, "-"));
-         this.sButtons.add(new ClickGuiScreen.SButton(3, plusX, by + rowGap, 18, 14, "+"));
-         this.sButtons.add(new ClickGuiScreen.SButton(4, minusX, by + 2 * rowGap, 18, 14, "-"));
-         this.sButtons.add(new ClickGuiScreen.SButton(5, plusX, by + 2 * rowGap, 18, 14, "+"));
-         int cy = by + 3 * rowGap + 4;
-         this.sButtons.add(new ClickGuiScreen.SButton(6, colX, cy, colW, 16, "Move Here"));
-         this.sButtons.add(new ClickGuiScreen.SButton(7, colX, cy + 18, colW, 16, "Render"));
-         this.sButtons.add(new ClickGuiScreen.SButton(8, colX, cy + 36, colW, 16, "Printer"));
+      boolean has = SchematicaBridge.hasSchematic();
+      String header = has
+            ? (this.loadedFile != null ? this.loadedFile : SchematicaBridge.name())
+            : "Load a schematic from the Browse tab first";
+      this.fontRendererObj.drawStringWithShadow(this.trim(header, this.contentW),
+            (float)this.contentX, (float)(this.contentY + 6), has ? -10696961 : -8088413);
 
-         // Transform block, paired two to a row under the position controls.
-         // Ids carry over from the old Transform tab so schematicAction stays
-         // one flat switch.
-         int half = (colW - 4) / 2;
-         int right = colX + half + 4;
-         int ty = cy + 66;
-         this.sButtons.add(new ClickGuiScreen.SButton(12, colX, ty, half, 16, "Rotate CW"));
-         this.sButtons.add(new ClickGuiScreen.SButton(13, right, ty, half, 16, "Rotate CCW"));
-         this.sButtons.add(new ClickGuiScreen.SButton(14, colX, ty + 18, half, 16, "Flip X"));
-         this.sButtons.add(new ClickGuiScreen.SButton(15, right, ty + 18, half, 16, "Flip Z"));
-         this.sButtons.add(new ClickGuiScreen.SButton(17, colX, ty + 36, half, 16, "Copy Pos"));
-         this.sButtons.add(new ClickGuiScreen.SButton(18, right, ty + 36, half, 16, "Apply Pos"));
+      int gap = 6;
+      int colW = (this.contentW - gap) / 2;
+      int rightX = this.contentX + colW + gap;
+      int labelY = this.contentY + 40;
+
+      this.fontRendererObj.drawStringWithShadow("MOVE", (float)this.contentX, (float)labelY, -8088413);
+      String stepText = "step " + this.schemStep;
+      this.fontRendererObj.drawStringWithShadow(stepText,
+            (float)(this.contentX + colW - this.fontRendererObj.getStringWidth(stepText)),
+            (float)labelY, -10461088);
+
+      this.fontRendererObj.drawStringWithShadow("TRANSFORM", (float)rightX, (float)labelY, -8088413);
+
+      this.drawButtons(mouseX, mouseY);
+
+      // Position readout sits under the nudge row it belongs to.
+      int[] pos = SchematicaBridge.position();
+      String posText = pos == null ? "-, -, -" : pos[0] + ", " + pos[1] + ", " + pos[2];
+      this.fontRendererObj.drawStringWithShadow(posText, (float)this.contentX,
+            (float)(this.contentY + 52 + 16 + 12 + 16 + 8), has ? -1379073 : -8088413);
+
+      int aLabelY = this.contentY + 52 + 3 * 22 + 14;
+      this.fontRendererObj.drawStringWithShadow("ASSISTS", (float)rightX, (float)aLabelY, -8088413);
+
+      if(!this.schemStatus.isEmpty()) {
+         this.fontRendererObj.drawStringWithShadow(this.trim(this.schemStatus, this.contentW),
+               (float)this.contentX, (float)(this.contentY + this.contentH - 34), -8088413);
       }
-
-      int by2 = this.contentY + this.contentH - bottomRow;
-      int gap = 5;
-      int bw = (this.contentW - 2 * gap) / 3;
-      this.sButtons.add(new ClickGuiScreen.SButton(9, this.contentX, by2, bw, bottomRow - 2, "New Test Box"));
-      this.sButtons.add(new ClickGuiScreen.SButton(10, this.contentX + bw + gap, by2, bw, bottomRow - 2, "Open Folder"));
-      this.sButtons.add(new ClickGuiScreen.SButton(11, this.contentX + 2 * (bw + gap), by2, bw, bottomRow - 2, "Unload"));
    }
 
    /** Points page: the Point A/B region and saving it out as a schematic. */
@@ -1439,13 +1800,6 @@ public class ClickGuiScreen extends GuiScreen {
    }
 
    private void drawSchematicPanel(int mouseX, int mouseY) {
-      this.drawSchematicTabs(mouseX, mouseY);
-
-      if(this.schemTab == 1) {
-         this.drawPointsPage(mouseX, mouseY);
-         return;
-      }
-
       if(!SchematicaBridge.isAvailable()) {
          this.fontRendererObj.drawStringWithShadow("Schematica mod isn\'t installed.", (float)this.contentX, (float)(this.contentY + 22), -8088413);
          this.drawButtons(mouseX, mouseY);
@@ -1474,37 +1828,45 @@ public class ClickGuiScreen extends GuiScreen {
             }
          }
 
-         int colX = this.schemListX + this.schemListW + 8;
-         int by = this.schemListY + 12;
-         int rowGap = 20;
-         this.fontRendererObj.drawStringWithShadow("POSITION", (float)colX, (float)this.schemListY, -8088413);
+         int colX = this.schemListX + this.schemListW + 10;
+         int colW = this.contentX + this.contentW - colX;
+
+         // Each group sits on its own card. Without these the controls read as
+         // loose text scattered over the world -- the card is what turns a
+         // cluster of buttons into a panel you can parse at a glance.
+         int cardL = colX - 6;
+         int cardR = colX + colW + 6;
+         this.roundRect(cardL, this.cardMoveT, cardR, this.cardMoveB, 4.0F, -14803426);
+         this.roundRect(cardL, this.cardTransT, cardR, this.cardTransB, 4.0F, -14803426);
+         this.roundRect(cardL, this.cardAssistT, cardR, this.cardAssistB, 4.0F, -14803426);
+         this.roundRect(this.schemListX - 6, this.cardSelT, this.schemListX + this.schemListW + 6,
+               this.cardSelB, 4.0F, -14803426);
+
+         // Every Y here comes from layoutSchematic, so labels cannot drift into
+         // the buttons they belong to.
+         this.fontRendererObj.drawStringWithShadow("MOVE", (float)colX, (float)this.lblMoveY, -8088413);
+         String stepText = "step " + this.schemStep;
+         this.fontRendererObj.drawStringWithShadow(stepText,
+               (float)(colX + colW - this.fontRendererObj.getStringWidth(stepText)),
+               (float)this.lblMoveY, -10461088);
+
          int[] pos = SchematicaBridge.position();
-         String[] axes = new String[]{"X", "Y", "Z"};
+         boolean editing = this.editingAxis >= 0;
+         String posText = editing
+               ? this.axisInput + "_"
+               : (pos == null ? "-, -, -" : pos[0] + ", " + pos[1] + ", " + pos[2]);
+         this.fontRendererObj.drawStringWithShadow(posText, (float)colX, (float)this.lblPosY,
+               editing ? -10696961 : (has ? -1379073 : -8088413));
 
-         for(int i = 0; i < 3; ++i) {
-            boolean editing = this.editingAxis == i;
-            String v = editing
-                  ? this.axisInput + "_"
-                  : (pos == null ? "-" : String.valueOf(pos[i]));
-
-            if(editing) {
-               this.roundRect(colX - 2, by + i * rowGap, colX + 62, by + i * rowGap + 14, 3.0F, -14141369);
-            }
-
-            // Click the value to type a coordinate outright -- nudging from
-            // 4837 to a number across the map with +/- is not realistic.
-            this.fontRendererObj.drawStringWithShadow(axes[i] + " " + v, (float)colX,
-                  (float)(by + i * rowGap + 3), editing ? -10696961 : (has ? -1379073 : -8088413));
-         }
-
-         // Header for the transform block, aligned with the gap layoutSchematic
-         // leaves for it (those buttons start at cy + 66).
-         this.fontRendererObj.drawStringWithShadow("TRANSFORM", (float)colX,
-               (float)(by + 3 * rowGap + 58), -8088413);
+         this.fontRendererObj.drawStringWithShadow("TRANSFORM", (float)colX, (float)this.lblTransformY, -8088413);
+         this.fontRendererObj.drawStringWithShadow("ASSISTS", (float)colX, (float)this.lblAssistsY, -8088413);
+         this.fontRendererObj.drawStringWithShadow("SELECTION", (float)this.schemListX, (float)this.lblSelectionY, -8088413);
 
          this.drawButtons(mouseX, mouseY);
+
          if(!this.schemStatus.isEmpty()) {
-            this.fontRendererObj.drawStringWithShadow(this.trim(this.schemStatus, this.contentW), (float)this.contentX, (float)(this.schemListY + this.schemListH + 2), -8088413);
+            this.fontRendererObj.drawStringWithShadow(this.trim(this.schemStatus, this.contentW),
+                  (float)this.contentX, (float)(this.contentY + this.contentH - 32), -8088413);
          }
 
       }
@@ -1515,7 +1877,14 @@ public class ClickGuiScreen extends GuiScreen {
 
       for(ClickGuiScreen.SButton b : this.sButtons) {
          boolean hov = b.hit(mouseX, mouseY);
-         drawRect(b.x, b.y, b.x + b.w, b.y + b.h, hov?486539263:218103807);
+
+         // These were white at 5% alpha, which over a lit Minecraft scene is
+         // invisible -- every control read as loose text floating on the world
+         // with no way to tell what was clickable or where one ended. Solid
+         // fill, plus a hairline edge so adjacent buttons stay distinct.
+         drawRect(b.x, b.y, b.x + b.w, b.y + b.h, hov ? -14340525 : -15329244);
+         drawRect(b.x, b.y, b.x + b.w, b.y + 1, hov ? -10696961 : -14671840);
+         drawRect(b.x, b.y + b.h - 1, b.x + b.w, b.y + b.h, -15921907);
          String label = b.label;
          int color = -1379073;
          if(b.id == 7) {
@@ -1585,7 +1954,9 @@ public class ClickGuiScreen extends GuiScreen {
    }
 
    private void schematicAction(int id) {
-      int step = isShiftKeyDown()?5:1;
+      // Control page picks the step explicitly; Shift still multiplies it, so
+      // "16 with Shift" reaches across a base in a few clicks.
+      int step = this.schemStep * (isShiftKeyDown() ? 5 : 1);
       switch(id) {
       case 0:
          SchematicaBridge.nudge(-step, 0, 0);
@@ -1697,6 +2068,24 @@ public class ClickGuiScreen extends GuiScreen {
          break;
       case 29:
          this.saveSelection();
+         break;
+      case 30:
+         this.schemStep = 1;
+         break;
+      case 31:
+         this.schemStep = 8;
+         break;
+      case 32:
+         this.schemStep = 16;
+         break;
+      case 33:
+         this.toggleAssist("Printer");
+         break;
+      case 34:
+         this.toggleAssist("MissingBlockESP");
+         break;
+      case 35:
+         this.toggleAssist("Schematic Preview");
       }
 
    }
@@ -1857,6 +2246,12 @@ public class ClickGuiScreen extends GuiScreen {
       String name;
       Module module;
       List<Module> members;
+      /** Section this card sits under; also the header's own label. */
+      String section;
+      /** True for the section divider itself rather than a module. */
+      boolean header;
+      /** Modules under the header, shown in its count. */
+      int headerCount;
       int x;
       int y;
       int w;

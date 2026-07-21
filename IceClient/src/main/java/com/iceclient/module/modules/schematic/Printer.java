@@ -3,14 +3,11 @@ package com.iceclient.module.modules.schematic;
 import com.google.common.collect.UnmodifiableIterator;
 import com.iceclient.module.Module;
 import com.iceclient.module.ModuleCategory;
-import com.iceclient.schematica.PrintEngine;
 import com.iceclient.schematica.SchematicaBridge;
 import com.iceclient.setting.BooleanSetting;
 import com.iceclient.setting.KeybindSetting;
-import com.iceclient.setting.ModeSetting;
 import com.iceclient.setting.NumberSetting;
 import java.util.Map.Entry;
-import java.util.function.BooleanSupplier;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockRedstoneComparator;
 import net.minecraft.block.BlockRedstoneRepeater;
@@ -27,33 +24,35 @@ import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent.ClientTickEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent.Phase;
 
+/**
+ * Front-end for Schematica's printer.
+ *
+ * <p>This drives {@code SchematicPrinter} rather than running a placement loop
+ * of its own. There used to be a "V2" mode with our own engine, and running two
+ * loops over the same schematic was worse than either alone -- both queued the
+ * same holes, both sent placements, and the results fought each other. The
+ * engine is gone; there is one printer and this configures it.
+ *
+ * <p>That also matches how every mature factions printer is built: Schematica's
+ * engine, patched. Improvements belong in that engine, not in a second one
+ * racing it.
+ */
 public class Printer extends Module {
-   /**
-    * V1 hands everything to Schematica's own printer -- proven, but a closed
-    * box: it picks its own ordering, sends one placement a tick and cannot be
-    * bounded. V2 runs {@link PrintEngine}, which is what every setting below
-    * the packet limit actually needs.
-    */
-   private final ModeSetting version = this.addMode("Version", "V2", "V1", "V2");
-   private final BooleanSetting limitPackets = this.addBool("Limit Packets", false);
-   private final NumberSetting packetLimit = this.addNumber("Limit Packet Count", 64.0D, 1.0D, 512.0D, 1.0D);
+
    private final NumberSetting placeDistance = this.addNumber("Place Distance", 5.0D, 1.0D, 9.0D, 1.0D);
    private final BooleanSetting placeInstantly = this.addBool("Place Instantly", true);
    private final NumberSetting placeDelay = this.addNumber("Place Delay", 0.0D, 0.0D, 20.0D, 1.0D);
    private final NumberSetting timeout = this.addNumber("Timeout", 2.0D, 0.0D, 20.0D, 1.0D);
    private final BooleanSetting placeAdjacent = this.addBool("Place Adjacent", true);
-   private final BooleanSetting replaceWrong = this.addBool("Replace Wrong Blocks", false);
-   private final BooleanSetting breakInstantly = this.addBool("Break Blocks Instantly", false);
-   private final BooleanSetting disableGens = this.addBool("Disable Gens", false);
-   private final BooleanSetting keepSlot = this.addBool("Keep Selected Slot", false);
-   private final BooleanSetting useInventory = this.addBool("Use Inventory", true);
-   private final BooleanSetting orientBlocks = this.addBool("Orient Blocks", true);
    private final BooleanSetting clearExtra = this.addBool("Clear Extra Blocks", false);
    private final BooleanSetting clearInstantly = this.addBool("Clear Instantly", false);
    private final BooleanSetting autoTick = this.addBool("Auto Tick", true);
    private final BooleanSetting aTickTrapdoors = this.addBool("Tick Trapdoors", true);
    private final NumberSetting autoTickTimeout = this.addNumber("Auto Tick Timeout", 2.0D, 0.0D, 20.0D, 1.0D);
    private final KeybindSetting autoTickKey = this.addKeybind("Auto Tick Key", 0);
+   // Nine toggles is most of the panel for something almost nobody changes, so
+   // they live behind one switch. Off = use the whole hotbar.
+   private final BooleanSetting limitSlots = this.addBool("Limit Hotbar Slots", false);
    private final BooleanSetting slot1 = this.addBool("Slot 1", true);
    private final BooleanSetting slot2 = this.addBool("Slot 2", true);
    private final BooleanSetting slot3 = this.addBool("Slot 3", true);
@@ -63,42 +62,11 @@ public class Printer extends Module {
    private final BooleanSetting slot7 = this.addBool("Slot 7", true);
    private final BooleanSetting slot8 = this.addBool("Slot 8", true);
    private final BooleanSetting slot9 = this.addBool("Slot 9", true);
-   private int autoTickCooldown;
-   private final PrintEngine engine = new PrintEngine();
 
-   /** Snapshots the settings the engine needs into its plain config object. */
-   private PrintEngine.Config buildConfig() {
-      PrintEngine.Config c = new PrintEngine.Config();
-      c.placeDistance = this.placeDistance.get();
-      c.placeInstantly = this.placeInstantly.get();
-      // With the limit off, "instantly" still needs a ceiling or one tick can
-      // try to place the entire queue and disconnect you for packet spam.
-      c.packetLimit = this.limitPackets.get() ? (int)this.packetLimit.get() : 64;
-      c.delay = this.placeDelay.getInt();
-      c.placeAdjacent = this.placeAdjacent.get();
-      c.replaceWrong = this.replaceWrong.get();
-      c.breakInstantly = this.breakInstantly.get();
-      c.disableGens = this.disableGens.get();
-      c.keepSlot = this.keepSlot.get();
-      c.useInventory = this.useInventory.get();
-      c.orientBlocks = this.orientBlocks.get();
-      c.slots = new boolean[]{this.slot1.get(), this.slot2.get(), this.slot3.get(),
-            this.slot4.get(), this.slot5.get(), this.slot6.get(),
-            this.slot7.get(), this.slot8.get(), this.slot9.get()};
-      return c;
-   }
+   private int autoTickCooldown;
 
    public Printer() {
       super("Printer", "Auto-places the loaded schematic", ModuleCategory.FACTIONS);
-      this.version.inSection("GENERAL");
-      this.limitPackets.inSection("GENERAL");
-      this.packetLimit.inSection("GENERAL");
-      this.replaceWrong.inSection("CLEAR");
-      this.breakInstantly.inSection("CLEAR");
-      this.disableGens.inSection("GENERAL");
-      this.keepSlot.inSection("GENERAL");
-      this.useInventory.inSection("GENERAL");
-      this.orientBlocks.inSection("GENERAL");
       this.placeDistance.inSection("GENERAL");
       this.placeInstantly.inSection("GENERAL");
       this.placeDelay.inSection("GENERAL");
@@ -110,6 +78,7 @@ public class Printer extends Module {
       this.aTickTrapdoors.inSection("AUTO TICK");
       this.autoTickTimeout.inSection("AUTO TICK");
       this.autoTickKey.inSection("AUTO TICK");
+      this.limitSlots.inSection("HOTBAR");
       this.slot1.inSection("HOTBAR");
       this.slot2.inSection("HOTBAR");
       this.slot3.inSection("HOTBAR");
@@ -119,33 +88,30 @@ public class Printer extends Module {
       this.slot7.inSection("HOTBAR");
       this.slot8.inSection("HOTBAR");
       this.slot9.inSection("HOTBAR");
-      BooleanSetting var10000 = this.clearInstantly;
-      BooleanSetting var10001 = this.clearExtra;
-      this.clearExtra.getClass();
-      var10000.visibleWhen(var10001::get);
-      var10000 = this.aTickTrapdoors;
-      var10001 = this.autoTick;
-      this.autoTick.getClass();
-      var10000.visibleWhen(var10001::get);
-      NumberSetting var2 = this.autoTickTimeout;
-      var10001 = this.autoTick;
-      this.autoTick.getClass();
-      var2.visibleWhen(var10001::get);
 
-      // The packet count only means anything with the limit on, and the V2-only
-      // options are hidden under V1 rather than shown doing nothing.
-      this.packetLimit.visibleWhen(this.limitPackets::get);
-      this.breakInstantly.visibleWhen(this.replaceWrong::get);
-      this.replaceWrong.visibleWhen(this::isV2);
-      this.disableGens.visibleWhen(this::isV2);
-      this.keepSlot.visibleWhen(this::isV2);
-      this.limitPackets.visibleWhen(this::isV2);
-      this.useInventory.visibleWhen(this::isV2);
-      this.orientBlocks.visibleWhen(this::isV2);
+      this.clearInstantly.visibleWhen(this.clearExtra::get);
+      this.aTickTrapdoors.visibleWhen(this.autoTick::get);
+      this.autoTickTimeout.visibleWhen(this.autoTick::get);
+
+      this.slot1.visibleWhen(this.limitSlots::get);
+      this.slot2.visibleWhen(this.limitSlots::get);
+      this.slot3.visibleWhen(this.limitSlots::get);
+      this.slot4.visibleWhen(this.limitSlots::get);
+      this.slot5.visibleWhen(this.limitSlots::get);
+      this.slot6.visibleWhen(this.limitSlots::get);
+      this.slot7.visibleWhen(this.limitSlots::get);
+      this.slot8.visibleWhen(this.limitSlots::get);
+      this.slot9.visibleWhen(this.limitSlots::get);
    }
 
-   private boolean isV2() {
-      return this.version.is("V2");
+   /** Enabled hotbar slots, or all nine when the limit is off. */
+   private boolean[] slots() {
+      if(!this.limitSlots.get()) {
+         return new boolean[]{true, true, true, true, true, true, true, true, true};
+      }
+
+      return new boolean[]{this.slot1.get(), this.slot2.get(), this.slot3.get(), this.slot4.get(),
+            this.slot5.get(), this.slot6.get(), this.slot7.get(), this.slot8.get(), this.slot9.get()};
    }
 
    protected void onEnable() {
@@ -160,10 +126,6 @@ public class Printer extends Module {
       if(SchematicaBridge.isAvailable()) {
          SchematicaBridge.setPrinting(false);
       }
-
-      // Drop the queue: it is positions relative to a schematic that may be
-      // unloaded or moved before this is switched back on.
-      this.engine.reset();
    }
 
    @SubscribeEvent
@@ -171,56 +133,45 @@ public class Printer extends Module {
       if(this.isEnabled() && event.phase == Phase.END) {
          if(this.mc.thePlayer != null && this.mc.theWorld != null && this.mc.playerController != null) {
             if(SchematicaBridge.isAvailable() && SchematicaBridge.hasSchematic()) {
-               if(this.isV2()) {
-                  // Schematica's printer must be off, or both loops place into
-                  // the same holes and every block gets a duplicate packet.
-                  if(SchematicaBridge.isPrinting()) {
-                     SchematicaBridge.setPrinting(false);
-                  }
+               SchematicaBridge.applyPrinterScalars(this.placeDistance.getInt(), this.placeInstantly.get(),
+                     this.placeDelay.getInt(), this.timeout.getInt(), this.placeAdjacent.get(),
+                     this.clearExtra.get(), this.clearInstantly.get());
+               SchematicaBridge.setPrinterEnabled(true);
 
-                  if(this.mc.currentScreen == null) {
-                     this.engine.tick(this.buildConfig());
-                  }
-               } else {
-                  SchematicaBridge.applyPrinterScalars(this.placeDistance.getInt(), this.placeInstantly.get(), this.placeDelay.getInt(), this.timeout.getInt(), this.placeAdjacent.get(), this.clearExtra.get(), this.clearInstantly.get());
-                  SchematicaBridge.setPrinterEnabled(true);
-                  if(this.mc.currentScreen == null && !SchematicaBridge.isPrinting()) {
-                     SchematicaBridge.setPrinting(true);
-                  }
+               if(this.mc.currentScreen == null && !SchematicaBridge.isPrinting()) {
+                  SchematicaBridge.setPrinting(true);
                }
 
                if(this.autoTick.get() && this.mc.currentScreen == null) {
                   this.runAutoTick();
                }
-
             }
          }
       }
    }
 
    private void pushFullConfig() {
-      SchematicaBridge.applyPrinterConfig(this.placeDistance.getInt(), this.placeInstantly.get(), this.placeDelay.getInt(), this.timeout.getInt(), this.placeAdjacent.get(), this.clearExtra.get(), this.clearInstantly.get(), new boolean[]{this.slot1.get(), this.slot2.get(), this.slot3.get(), this.slot4.get(), this.slot5.get(), this.slot6.get(), this.slot7.get(), this.slot8.get(), this.slot9.get()});
+      SchematicaBridge.applyPrinterConfig(this.placeDistance.getInt(), this.placeInstantly.get(),
+            this.placeDelay.getInt(), this.timeout.getInt(), this.placeAdjacent.get(),
+            this.clearExtra.get(), this.clearInstantly.get(), this.slots());
    }
 
    private void runAutoTick() {
       if(this.autoTickCooldown-- <= 0) {
          BlockPos[] target = new BlockPos[]{null};
          SchematicaBridge.forEachSchematicBlock(this.placeDistance.get(), (world, want) -> {
-            if(target[0] == null) {
-               if(this.mc.theWorld.isBlockLoaded(world, false)) {
-                  IBlockState have = this.mc.theWorld.getBlockState(world);
-                  if(this.needsTick(have, want)) {
-                     target[0] = world;
-                  }
-
+            if(target[0] == null && this.mc.theWorld.isBlockLoaded(world, false)) {
+               IBlockState have = this.mc.theWorld.getBlockState(world);
+               if(this.needsTick(have, want)) {
+                  target[0] = world;
                }
             }
          });
+
          if(target[0] != null) {
             this.clickBlock(target[0]);
             this.autoTickCooldown = this.autoTickTimeout.getInt();
          }
-
       }
    }
 
@@ -254,9 +205,10 @@ public class Printer extends Module {
     * <p>Critically this refuses to click while holding a placeable block. A
     * right-click with a block in hand does not tick anything -- it places that
     * block against the face we clicked, which is where the printer's reputation
-    * for "randomly placing blocks everywhere" came from. If no empty or non-block
-    * slot is available we skip the tick entirely; a missed repeater delay is a
-    * far cheaper mistake than a stray block inside a cannon.
+    * for "randomly placing blocks everywhere" came from. Auto Tick defaults on,
+    * so this fired constantly. If no empty or non-block slot is available we
+    * skip the tick; a missed repeater delay is far cheaper than a stray block
+    * inside a cannon.
     */
    private void clickBlock(BlockPos p) {
       int safe = this.emptyHandSlot();
@@ -264,8 +216,7 @@ public class Printer extends Module {
          return;
       }
 
-      int previous = this.mc.thePlayer.inventory.currentItem;
-      if(previous != safe) {
+      if(this.mc.thePlayer.inventory.currentItem != safe) {
          this.mc.thePlayer.inventory.currentItem = safe;
          this.mc.getNetHandler().addToSendQueue(new C09PacketHeldItemChange(safe));
       }
