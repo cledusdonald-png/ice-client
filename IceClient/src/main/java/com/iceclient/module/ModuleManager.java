@@ -129,6 +129,7 @@ public class ModuleManager {
       tag(register(new ScoreboardModule()), ModuleCategory.HUD, (String)null);
       tag(register(new PotCounterModule()), ModuleCategory.HUD, (String)null);
       tag(register(new com.iceclient.module.modules.render.IceTags()), ModuleCategory.HUD, (String)null);
+      tag(register(new com.iceclient.module.modules.render.ScrollableTooltips()), ModuleCategory.GENERAL, (String)null);
       tag(register(new TargetHudModule()), ModuleCategory.COMBAT, (String)null);
       tag(register(new ComboCounterModule()), ModuleCategory.COMBAT, (String)null);
       tag(register(new NoHurtCamModule()), ModuleCategory.COMBAT, (String)null);

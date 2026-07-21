@@ -50,6 +50,21 @@ public class FreeLook extends Module {
       instance = this;
    }
 
+   /**
+    * Minecraft only rebuilds its visible-chunk set when the PLAYER's position or
+    * rotation changes. FreeLook deliberately leaves the body still, so the moment
+    * you swing the camera that set goes stale: chunks behind you stay culled, and
+    * since entities are only drawn inside visible chunks, their nametags vanish
+    * along with them. Marking the render global dirty each frame forces it to
+    * re-evaluate against the camera we're actually looking through.
+    */
+   @SubscribeEvent
+   public void onRenderTick(TickEvent.RenderTickEvent event) {
+      if(active && this.mc.renderGlobal != null) {
+         this.mc.renderGlobal.setDisplayListEntitiesDirty();
+      }
+   }
+
    public static boolean isActive() {
       return active;
    }

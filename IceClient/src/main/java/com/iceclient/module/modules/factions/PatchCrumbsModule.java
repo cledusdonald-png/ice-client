@@ -23,12 +23,52 @@ import net.minecraftforge.fml.common.gameevent.TickEvent.ClientTickEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent.Phase;
 import org.lwjgl.opengl.GL11;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+/**
+ * Marks where incoming TNT actually breached, so you know where to patch.
+ *
+ * <p><b>Why this tracks detonations rather than live TNT.</b> The obvious
+ * approach -- mark the first primed TNT you can see -- gives you the coordinates
+ * of a block of TNT in mid-air, metres from and well above the wall it is about
+ * to open. That is the wrong Y by however far it still had to travel, and it
+ * moves every time you re-scan. What you actually want to patch is where the
+ * charge went off, which is only knowable at the moment it disappears.
+ *
+ * <p>So every primed TNT is followed until it leaves the world, and the last
+ * position of one whose fuse had run down becomes the crumb. TNT that simply
+ * left render distance still has fuse remaining and is discarded, so flying
+ * rounds never leave phantom marks.
+ *
+ * <p>Crumbs are kept in a list with independent lifetimes. Overstacked cannons
+ * and multi-barrel walls put several charges into the wall within a tick or two
+ * of each other, and a single slot could only ever show the last one -- which is
+ * why the old marker looked like it "vanished after two seconds" mid-raid. It
+ * was not expiring, it was being overwritten.
+ */
 public class PatchCrumbsModule extends Module {
-   private static final double STILL_EPSILON = 1.0E-4D;
-   private final ModeSetting detect = (ModeSetting)this.addSetting(new ModeSetting("Detect", "Velocity", new String[]{"Velocity", "Settled"}));
+
+   /** A TNT removed with this much fuse left detonated; more than this and it
+    *  just left render distance. Two ticks of slack for scan timing. */
+   private static final int DETONATION_FUSE = 2;
+
+   /** Below this many ms remaining a crumb fades rather than vanishing, so it
+    *  never disappears while you are still lining a patch up on it. */
+   private static final long FADE_MS = 1000L;
+
+   private final ModeSetting detect = (ModeSetting)this.addSetting(new ModeSetting("Detect", "Detonation", new String[]{"Detonation", "Velocity", "Settled"}));
    private final ModeSetting direction = (ModeSetting)this.addSetting(new ModeSetting("Direction", "Both", new String[]{"Auto", "Both", "North/South", "East/West"}));
    private final BooleanSetting dispenserCheck = (BooleanSetting)this.addSetting(new BooleanSetting("Dispenser check", false));
-   private final NumberSetting keepSeconds = (NumberSetting)this.addSetting(new NumberSetting("Keep (s)", 6.0D, 1.0D, 60.0D, 1.0D));
+   private final NumberSetting keepSeconds = (NumberSetting)this.addSetting(new NumberSetting("Keep (s)", 10.0D, 1.0D, 60.0D, 1.0D));
+   // Overstacked cannons land several charges at once; one slot could only ever
+   // show the last of them.
+   private final NumberSetting maxCrumbs = (NumberSetting)this.addSetting(new NumberSetting("Max crumbs", 8.0D, 1.0D, 32.0D, 1.0D));
    // Orbit's rails run right across the map, so the old 16-block cap is lifted.
    private final NumberSetting lineLength = (NumberSetting)this.addSetting(new NumberSetting("Line length", 96.0D, 1.0D, 256.0D, 8.0D));
    // Rails along the box's four vertical edges (Orbit's look) instead of a
@@ -46,107 +86,215 @@ public class PatchCrumbsModule extends Module {
    private final NumberSetting coordScale = (NumberSetting)this.addSetting(new NumberSetting("Coords size", 5.0D, 2.0D, 12.0D, 1.0D));
    private final BooleanSetting filled = (BooleanSetting)this.addSetting(new BooleanSetting("Full 3D block", true));
    private final BooleanSetting showCoords = (BooleanSetting)this.addSetting(new BooleanSetting("Show coords", true));
-   private static final long VELOCITY_THROTTLE_MS = 1000L;
-   private boolean active = false;
-   private int crumbX;
-   private int crumbY;
-   private int crumbZ;
-   private long expiresAt = 0L;
-   private boolean drawNS = false;
-   private boolean drawEW = false;
-   private long nextScanAt = 0L;
+
+   /** Live primed TNT, by entity id, so we can tell what happened when one goes. */
+   private final Map<Integer, Track> tracked = new HashMap<Integer, Track>();
+   private final List<Crumb> crumbs = new ArrayList<Crumb>();
 
    public PatchCrumbsModule() {
       super("PatchCrumbs", "Highlights where to patch when your wall gets cannoned (awareness only)", ModuleCategory.FACTIONS, 0);
    }
 
    protected void onDisable() {
-      this.active = false;
+      this.crumbs.clear();
+      this.tracked.clear();
+   }
+
+   /** Last known state of one primed TNT. */
+   private static final class Track {
+      double x, y, z, mx, mz;
+      int fuse;
+   }
+
+   /** One breach worth patching. */
+   private static final class Crumb {
+      int x, y, z;
+      long expiresAt;
+      long life;
+      boolean ns, ew;
    }
 
    @SubscribeEvent
    public void onClientTick(ClientTickEvent event) {
-      if(this.isEnabled() && event.phase == Phase.START) {
-         if(this.mc.theWorld != null && this.mc.thePlayer != null) {
-            long now = System.currentTimeMillis();
-            if(this.active && now > this.expiresAt) {
-               this.active = false;
-            }
+      if(!this.isEnabled() || event.phase != Phase.START) {
+         return;
+      }
 
-            boolean velocityMode = this.detect.is("Velocity");
-            if(!velocityMode || now >= this.nextScanAt) {
-               for(Entity entity : this.mc.theWorld.loadedEntityList) {
-                  if(entity instanceof EntityTNTPrimed) {
-                     EntityTNTPrimed tnt = (EntityTNTPrimed)entity;
-                     if(!this.dispenserCheck.get() || !this.nearDispenser(tnt)) {
-                        int x = MathHelper.floor_double(tnt.posX);
-                        int y = MathHelper.floor_double(tnt.posY);
-                        int z = MathHelper.floor_double(tnt.posZ);
-                        if((!this.active || x != this.crumbX || z != this.crumbZ) && (!this.detect.is("Settled") || Math.abs(tnt.motionX) <= 1.0E-4D && Math.abs(tnt.motionZ) <= 1.0E-4D && this.isSandLike(x, y - 1, z))) {
-                           this.setCrumb(x, y, z, tnt.motionX, tnt.motionZ, now);
-                           if(velocityMode) {
-                              this.nextScanAt = now + 1000L;
-                           }
+      if(this.mc.theWorld == null || this.mc.thePlayer == null) {
+         return;
+      }
 
-                           return;
-                        }
-                     }
-                  }
-               }
+      long now = System.currentTimeMillis();
 
-            }
+      for(Iterator<Crumb> it = this.crumbs.iterator(); it.hasNext();) {
+         if(now > it.next().expiresAt) {
+            it.remove();
          }
+      }
+
+      if(this.detect.is("Settled")) {
+         this.scanSettled(now);
+      } else {
+         this.scanDetonations(now);
       }
    }
 
-   private void setCrumb(int x, int y, int z, double motionX, double motionZ, long now) {
-      this.crumbX = x;
-      this.crumbY = y;
-      this.crumbZ = z;
-      this.expiresAt = now + (long)(this.keepSeconds.get() * 1000.0D);
-      this.resolveDirection(motionX, motionZ);
-      this.active = true;
+   /**
+    * Follows every primed TNT and turns the ones that go off into crumbs.
+    *
+    * <p>"Velocity" is kept as a mode only so older configs still load; it runs
+    * the same detonation tracking, because marking a TNT by its velocity was
+    * the bug rather than a feature.
+    */
+   private void scanDetonations(long now) {
+      Set<Integer> alive = new HashSet<Integer>();
+
+      for(Entity entity : this.mc.theWorld.loadedEntityList) {
+         if(!(entity instanceof EntityTNTPrimed) || entity.isDead) {
+            continue;
+         }
+
+         EntityTNTPrimed tnt = (EntityTNTPrimed)entity;
+         int id = tnt.getEntityId();
+         alive.add(Integer.valueOf(id));
+
+         Track t = this.tracked.get(Integer.valueOf(id));
+         if(t == null) {
+            t = new Track();
+            this.tracked.put(Integer.valueOf(id), t);
+         }
+
+         t.x = tnt.posX;
+         t.y = tnt.posY;
+         t.z = tnt.posZ;
+         t.mx = tnt.motionX;
+         t.mz = tnt.motionZ;
+         t.fuse = tnt.fuse;
+      }
+
+      for(Iterator<Map.Entry<Integer, Track>> it = this.tracked.entrySet().iterator(); it.hasNext();) {
+         Map.Entry<Integer, Track> e = it.next();
+         if(alive.contains(e.getKey())) {
+            continue;
+         }
+
+         Track t = e.getValue();
+         it.remove();
+
+         // Still had fuse left: it left render distance rather than exploding.
+         if(t.fuse > DETONATION_FUSE) {
+            continue;
+         }
+
+         int x = MathHelper.floor_double(t.x);
+         int y = MathHelper.floor_double(t.y);
+         int z = MathHelper.floor_double(t.z);
+
+         if(this.dispenserCheck.get() && this.nearDispenser(x, y, z)) {
+            continue;
+         }
+
+         this.addCrumb(x, y, z, t.mx, t.mz, now);
+      }
    }
 
-   private void resolveDirection(double motionX, double motionZ) {
-      this.drawNS = false;
-      this.drawEW = false;
+   /** Legacy mode: mark sand that has come to rest, rather than the detonation. */
+   private void scanSettled(long now) {
+      for(Entity entity : this.mc.theWorld.loadedEntityList) {
+         if(!(entity instanceof EntityTNTPrimed) || entity.isDead) {
+            continue;
+         }
+
+         EntityTNTPrimed tnt = (EntityTNTPrimed)entity;
+         if(Math.abs(tnt.motionX) > 1.0E-4D || Math.abs(tnt.motionZ) > 1.0E-4D) {
+            continue;
+         }
+
+         int x = MathHelper.floor_double(tnt.posX);
+         int y = MathHelper.floor_double(tnt.posY);
+         int z = MathHelper.floor_double(tnt.posZ);
+
+         if(!this.isSandLike(x, y - 1, z)) {
+            continue;
+         }
+
+         if(this.dispenserCheck.get() && this.nearDispenser(x, y, z)) {
+            continue;
+         }
+
+         this.addCrumb(x, y, z, tnt.motionX, tnt.motionZ, now);
+      }
+   }
+
+   /**
+    * Adds a crumb, or refreshes one already on that block.
+    *
+    * <p>Refreshing matters during sustained fire: repeated hits on the same spot
+    * should keep the marker alive rather than filling the list with duplicates
+    * and pushing the other breaches out.
+    */
+   private void addCrumb(int x, int y, int z, double motionX, double motionZ, long now) {
+      long life = (long)(this.keepSeconds.get() * 1000.0D);
+
+      for(Crumb c : this.crumbs) {
+         if(c.x == x && c.y == y && c.z == z) {
+            c.expiresAt = now + life;
+            c.life = life;
+            return;
+         }
+      }
+
+      Crumb c = new Crumb();
+      c.x = x;
+      c.y = y;
+      c.z = z;
+      c.expiresAt = now + life;
+      c.life = life;
+      this.resolveDirection(c, motionX, motionZ);
+      this.crumbs.add(c);
+
+      // Oldest out first, so a heavy volley shows the most recent breaches.
+      while(this.crumbs.size() > (int)this.maxCrumbs.get()) {
+         this.crumbs.remove(0);
+      }
+   }
+
+   private void resolveDirection(Crumb c, double motionX, double motionZ) {
+      c.ns = false;
+      c.ew = false;
+
       if(this.direction.is("Both")) {
-         this.drawNS = true;
-         this.drawEW = true;
+         c.ns = true;
+         c.ew = true;
       } else if(this.direction.is("North/South")) {
-         this.drawNS = true;
+         c.ns = true;
       } else if(this.direction.is("East/West")) {
-         this.drawEW = true;
+         c.ew = true;
       } else {
          double ax = Math.abs(motionX);
          double az = Math.abs(motionZ);
+
          if(ax <= 1.0E-4D && az <= 1.0E-4D) {
-            if(this.isSolid(this.crumbX - 1, this.crumbY, this.crumbZ) || this.isSolid(this.crumbX + 1, this.crumbY, this.crumbZ)) {
-               this.drawEW = true;
+            if(this.isSolid(c.x - 1, c.y, c.z) || this.isSolid(c.x + 1, c.y, c.z)) {
+               c.ew = true;
             }
 
-            if(this.isSolid(this.crumbX, this.crumbY, this.crumbZ - 1) || this.isSolid(this.crumbX, this.crumbY, this.crumbZ + 1)) {
-               this.drawNS = true;
+            if(this.isSolid(c.x, c.y, c.z - 1) || this.isSolid(c.x, c.y, c.z + 1)) {
+               c.ns = true;
             }
 
-            if(!this.drawEW && !this.drawNS) {
-               this.drawNS = true;
+            if(!c.ew && !c.ns) {
+               c.ns = true;
             }
          } else if(ax < az) {
-            this.drawEW = true;
+            c.ew = true;
          } else {
-            this.drawNS = true;
+            c.ns = true;
          }
       }
-
    }
 
-   private boolean nearDispenser(EntityTNTPrimed tnt) {
-      int bx = MathHelper.floor_double(tnt.posX);
-      int by = MathHelper.floor_double(tnt.posY);
-      int bz = MathHelper.floor_double(tnt.posZ);
-
+   private boolean nearDispenser(int bx, int by, int bz) {
       for(int dx = -1; dx <= 1; ++dx) {
          for(int dy = -1; dy <= 1; ++dy) {
             for(int dz = -1; dz <= 1; ++dz) {
@@ -175,55 +323,75 @@ public class PatchCrumbsModule extends Module {
 
    @SubscribeEvent
    public void onRenderWorld(RenderWorldLastEvent event) {
-      if(this.isEnabled() && this.active) {
-         if(System.currentTimeMillis() > this.expiresAt) {
-            this.active = false;
-         } else {
-            double camX = this.mc.getRenderManager().viewerPosX;
-            double camY = this.mc.getRenderManager().viewerPosY;
-            double camZ = this.mc.getRenderManager().viewerPosZ;
-            float[] rgb = this.rgbOf(this.color);
-            float[] lrgb = this.rgbOf(this.lineColor);
-            GL11.glPushMatrix();
-            this.setupLineState();
-            if(this.filled.get()) {
-               GlStateManager.color(rgb[0], rgb[1], rgb[2], 0.28F);
-               this.drawFilledBox((double)this.crumbX - camX, (double)this.crumbY - camY, (double)this.crumbZ - camZ);
-            }
+      if(!this.isEnabled() || this.crumbs.isEmpty()) {
+         return;
+      }
 
-            GL11.glLineWidth((float)this.lineWidth.get());
-            GlStateManager.color(rgb[0], rgb[1], rgb[2], 0.9F);
-            this.drawWireBox((double)this.crumbX - camX, (double)this.crumbY - camY, (double)this.crumbZ - camZ);
-            if(!this.edgeRails.get()) {
-               GlStateManager.color(lrgb[0], lrgb[1], lrgb[2], 0.9F);
-               this.drawGuideLines(camX, camY, camZ);
-            }
+      double camX = this.mc.getRenderManager().viewerPosX;
+      double camY = this.mc.getRenderManager().viewerPosY;
+      double camZ = this.mc.getRenderManager().viewerPosZ;
+      float[] rgb = this.rgbOf(this.color);
+      float[] lrgb = this.rgbOf(this.lineColor);
+      long now = System.currentTimeMillis();
 
-            this.teardownLineState();
-            GL11.glPopMatrix();
+      for(Crumb c : new ArrayList<Crumb>(this.crumbs)) {
+         float fade = this.fadeOf(c, now);
+         if(fade <= 0.0F) {
+            continue;
+         }
 
-            // Drawn after the block above because these helpers manage their own
-            // GL state and apply the camera offset themselves, so they take
-            // absolute world coords.
-            AxisAlignedBB box = new AxisAlignedBB(
-                  (double)this.crumbX, (double)this.crumbY, (double)this.crumbZ,
-                  (double)this.crumbX + 1.0D, (double)this.crumbY + 1.0D, (double)this.crumbZ + 1.0D);
+         GL11.glPushMatrix();
+         this.setupLineState();
 
-            if(this.edgeRails.get()) {
-               int railCol = this.argbOf(lrgb, 200);
-               WorldRenderUtil.axisGuides(box, railCol, this.lineLength.get(), (float)this.railWidth.get(), this.seeThrough.get());
-            }
+         if(this.filled.get()) {
+            GlStateManager.color(rgb[0], rgb[1], rgb[2], 0.28F * fade);
+            this.drawFilledBox((double)c.x - camX, (double)c.y - camY, (double)c.z - camZ);
+         }
 
-            if(this.tether.get()) {
-               this.drawTether(box);
-            }
-            if(this.showCoords.get()) {
-               String text = this.crumbX + ", " + this.crumbY + ", " + this.crumbZ;
-               this.drawLabel((double)this.crumbX + 0.5D - camX, (double)this.crumbY + 1.4D - camY, (double)this.crumbZ + 0.5D - camZ, text);
-            }
+         GL11.glLineWidth((float)this.lineWidth.get());
+         GlStateManager.color(rgb[0], rgb[1], rgb[2], 0.9F * fade);
+         this.drawWireBox((double)c.x - camX, (double)c.y - camY, (double)c.z - camZ);
 
+         if(!this.edgeRails.get()) {
+            GlStateManager.color(lrgb[0], lrgb[1], lrgb[2], 0.9F * fade);
+            this.drawGuideLines(c, camX, camY, camZ);
+         }
+
+         this.teardownLineState();
+         GL11.glPopMatrix();
+
+         // Drawn after the block above because these helpers manage their own
+         // GL state and apply the camera offset themselves, so they take
+         // absolute world coords.
+         AxisAlignedBB box = new AxisAlignedBB(
+               (double)c.x, (double)c.y, (double)c.z,
+               (double)c.x + 1.0D, (double)c.y + 1.0D, (double)c.z + 1.0D);
+
+         if(this.edgeRails.get()) {
+            int railCol = this.argbOf(lrgb, (int)(200.0F * fade));
+            WorldRenderUtil.axisGuides(box, railCol, this.lineLength.get(), (float)this.railWidth.get(), this.seeThrough.get());
+         }
+
+         if(this.tether.get()) {
+            this.drawTether(box);
+         }
+
+         if(this.showCoords.get()) {
+            String text = c.x + ", " + c.y + ", " + c.z;
+            this.drawLabel((double)c.x + 0.5D - camX, (double)c.y + 1.4D - camY, (double)c.z + 0.5D - camZ, text);
          }
       }
+   }
+
+   /** 1 for most of a crumb's life, easing to 0 over its last second. */
+   private float fadeOf(Crumb c, long now) {
+      long left = c.expiresAt - now;
+      if(left <= 0L) {
+         return 0.0F;
+      }
+
+      long window = Math.min(FADE_MS, c.life);
+      return left >= window ? 1.0F : (float)left / (float)window;
    }
 
    /** Packs a float rgb triple + alpha into the ARGB int the render helpers take. */
@@ -267,20 +435,21 @@ public class PatchCrumbsModule extends Module {
       GlStateManager.popMatrix();
    }
 
-   private void drawGuideLines(double camX, double camY, double camZ) {
+   private void drawGuideLines(Crumb c, double camX, double camY, double camZ) {
       double len = this.lineLength.get();
-      double cx = (double)this.crumbX + 0.5D - camX;
-      double cy = (double)this.crumbY + 0.5D - camY;
-      double cz = (double)this.crumbZ + 0.5D - camZ;
+      double cx = (double)c.x + 0.5D - camX;
+      double cy = (double)c.y + 0.5D - camY;
+      double cz = (double)c.z + 0.5D - camZ;
       GL11.glBegin(1);
-      if(this.drawEW) {
+
+      if(c.ew) {
          GL11.glVertex3d(cx, cy, cz);
          GL11.glVertex3d(cx + len, cy, cz);
          GL11.glVertex3d(cx, cy, cz);
          GL11.glVertex3d(cx - len, cy, cz);
       }
 
-      if(this.drawNS) {
+      if(c.ns) {
          GL11.glVertex3d(cx, cy, cz);
          GL11.glVertex3d(cx, cy, cz + len);
          GL11.glVertex3d(cx, cy, cz);

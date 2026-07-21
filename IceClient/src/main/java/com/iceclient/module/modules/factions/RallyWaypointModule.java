@@ -174,13 +174,28 @@ public class RallyWaypointModule extends Module {
          double camZ = this.mc.getRenderManager().viewerPosZ;
          double dist = this.mc.thePlayer.getDistance((double)this.rx + 0.5D, (double)this.ry, (double)this.rz + 0.5D);
          float[] rgb = this.rgb();
+
+         // Anything past Minecraft's far clip plane simply isn't drawn, which is why
+         // a distant rally used to vanish. Draw the beam + label at a clamped point
+         // along the same bearing instead: always visible, still points true, and the
+         // label keeps reporting the REAL distance.
+         final double maxR = 160.0D;
+         double ppx = this.mc.thePlayer.posX;
+         double ppz = this.mc.thePlayer.posZ;
+         double offX = (double)this.rx + 0.5D - ppx;
+         double offZ = (double)this.rz + 0.5D - ppz;
+         double horiz = Math.sqrt(offX * offX + offZ * offZ);
+         double shrink = horiz > maxR?maxR / horiz:1.0D;
+         double drawX = ppx + offX * shrink;
+         double drawZ = ppz + offZ * shrink;
+
          if(this.beam.get() && dist >= this.beamFrom.get()) {
             // Shared with Waypoints so both markers look the same and gain new
             // options together.
             int beamCol = this.argbOf(rgb, (int)(this.beamAlpha.get() * 255.0D));
-            double bx = (double)this.rx + 0.5D;
+            double bx = drawX;
             double by = (double)this.ry + this.beamOffsetY.get();
-            double bz = (double)this.rz + 0.5D;
+            double bz = drawZ;
 
             if(this.beamShape.is("Round")) {
                // Radius, not width: half of the square beam's width, so the two
@@ -218,7 +233,11 @@ public class RallyWaypointModule extends Module {
          long secondsLeft = (this.expiresAt - System.currentTimeMillis()) / 1000L;
          String label = this.rallyName + " [" + (int)dist + "m]";
          String sub = secondsLeft >= 60L?secondsLeft / 60L + "m" + String.format("%02d", new Object[]{Long.valueOf(secondsLeft % 60L)}) + "s":secondsLeft + "s";
-         this.drawLabel((double)this.rx + 0.5D - camX, (double)this.ry + 2.2D - camY, (double)this.rz + 0.5D - camZ, label, sub, dist, rgb);
+         // Scale off how far away the label is actually DRAWN, not the real
+         // distance -- the text sits at the clamped point, so sizing it for a
+         // rally 3000 blocks out made it swallow the whole screen.
+         double drawDist = this.mc.thePlayer.getDistance(drawX, (double)this.ry, drawZ);
+         this.drawLabel(drawX - camX, (double)this.ry + 2.2D - camY, drawZ - camZ, label, sub, drawDist, rgb);
       }
    }
 
@@ -276,8 +295,11 @@ public class RallyWaypointModule extends Module {
       GlStateManager.popMatrix();
    }
 
-   private void drawLabel(double x, double y, double z, String label, String sub, double dist, float[] rgb) {
-      float scale = (float)(0.025D * Math.max(1.0D, dist / 18.0D));
+   /** {@code drawDist} must be how far the label is actually rendered, not the real
+    *  distance to the rally -- see the clamp in onRenderWorld. Hard ceiling on the
+    *  scale as a backstop so a bad distance can never fill the screen again. */
+   private void drawLabel(double x, double y, double z, String label, String sub, double drawDist, float[] rgb) {
+      float scale = (float)Math.min(0.25D, 0.025D * Math.max(1.0D, drawDist / 18.0D));
       GlStateManager.pushMatrix();
       GlStateManager.translate(x, y, z);
       GlStateManager.rotate(-this.mc.getRenderManager().playerViewY, 0.0F, 1.0F, 0.0F);

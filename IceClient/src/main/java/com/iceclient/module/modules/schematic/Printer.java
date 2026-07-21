@@ -17,6 +17,9 @@ import net.minecraft.block.BlockRedstoneRepeater;
 import net.minecraft.block.BlockTrapDoor;
 import net.minecraft.block.properties.IProperty;
 import net.minecraft.block.state.IBlockState;
+import net.minecraft.item.ItemBlock;
+import net.minecraft.item.ItemStack;
+import net.minecraft.network.play.client.C09PacketHeldItemChange;
 import net.minecraft.util.BlockPos;
 import net.minecraft.util.EnumFacing;
 import net.minecraft.util.Vec3;
@@ -43,6 +46,8 @@ public class Printer extends Module {
    private final BooleanSetting breakInstantly = this.addBool("Break Blocks Instantly", false);
    private final BooleanSetting disableGens = this.addBool("Disable Gens", false);
    private final BooleanSetting keepSlot = this.addBool("Keep Selected Slot", false);
+   private final BooleanSetting useInventory = this.addBool("Use Inventory", true);
+   private final BooleanSetting orientBlocks = this.addBool("Orient Blocks", true);
    private final BooleanSetting clearExtra = this.addBool("Clear Extra Blocks", false);
    private final BooleanSetting clearInstantly = this.addBool("Clear Instantly", false);
    private final BooleanSetting autoTick = this.addBool("Auto Tick", true);
@@ -75,6 +80,8 @@ public class Printer extends Module {
       c.breakInstantly = this.breakInstantly.get();
       c.disableGens = this.disableGens.get();
       c.keepSlot = this.keepSlot.get();
+      c.useInventory = this.useInventory.get();
+      c.orientBlocks = this.orientBlocks.get();
       c.slots = new boolean[]{this.slot1.get(), this.slot2.get(), this.slot3.get(),
             this.slot4.get(), this.slot5.get(), this.slot6.get(),
             this.slot7.get(), this.slot8.get(), this.slot9.get()};
@@ -90,6 +97,8 @@ public class Printer extends Module {
       this.breakInstantly.inSection("CLEAR");
       this.disableGens.inSection("GENERAL");
       this.keepSlot.inSection("GENERAL");
+      this.useInventory.inSection("GENERAL");
+      this.orientBlocks.inSection("GENERAL");
       this.placeDistance.inSection("GENERAL");
       this.placeInstantly.inSection("GENERAL");
       this.placeDelay.inSection("GENERAL");
@@ -131,6 +140,8 @@ public class Printer extends Module {
       this.disableGens.visibleWhen(this::isV2);
       this.keepSlot.visibleWhen(this::isV2);
       this.limitPackets.visibleWhen(this::isV2);
+      this.useInventory.visibleWhen(this::isV2);
+      this.orientBlocks.visibleWhen(this::isV2);
    }
 
    private boolean isV2() {
@@ -237,7 +248,52 @@ public class Printer extends Module {
       return null;
    }
 
+   /**
+    * Right-clicks a block to advance its state (repeater delay, comparator mode).
+    *
+    * <p>Critically this refuses to click while holding a placeable block. A
+    * right-click with a block in hand does not tick anything -- it places that
+    * block against the face we clicked, which is where the printer's reputation
+    * for "randomly placing blocks everywhere" came from. If no empty or non-block
+    * slot is available we skip the tick entirely; a missed repeater delay is a
+    * far cheaper mistake than a stray block inside a cannon.
+    */
    private void clickBlock(BlockPos p) {
-      this.mc.playerController.onPlayerRightClick(this.mc.thePlayer, this.mc.theWorld, this.mc.thePlayer.getHeldItem(), p, EnumFacing.UP, new Vec3(0.5D, 0.5D, 0.5D));
+      int safe = this.emptyHandSlot();
+      if(safe < 0) {
+         return;
+      }
+
+      int previous = this.mc.thePlayer.inventory.currentItem;
+      if(previous != safe) {
+         this.mc.thePlayer.inventory.currentItem = safe;
+         this.mc.getNetHandler().addToSendQueue(new C09PacketHeldItemChange(safe));
+      }
+
+      // Hit vector is world-space in 1.8.9; the centre of the block's top face.
+      Vec3 hit = new Vec3((double)p.getX() + 0.5D, (double)p.getY() + 1.0D, (double)p.getZ() + 0.5D);
+      this.mc.playerController.onPlayerRightClick(this.mc.thePlayer, this.mc.theWorld,
+            this.mc.thePlayer.getHeldItem(), p, EnumFacing.UP, hit);
+      this.mc.thePlayer.swingItem();
+   }
+
+   /** A hotbar slot that will not place anything when right-clicked, or -1. */
+   private int emptyHandSlot() {
+      int current = this.mc.thePlayer.inventory.currentItem;
+      if(isTickSafe(this.mc.thePlayer.inventory.getStackInSlot(current))) {
+         return current;
+      }
+
+      for(int i = 0; i < 9; ++i) {
+         if(isTickSafe(this.mc.thePlayer.inventory.getStackInSlot(i))) {
+            return i;
+         }
+      }
+
+      return -1;
+   }
+
+   private static boolean isTickSafe(ItemStack s) {
+      return s == null || !(s.getItem() instanceof ItemBlock);
    }
 }

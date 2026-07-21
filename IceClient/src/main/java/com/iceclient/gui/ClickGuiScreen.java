@@ -1223,15 +1223,20 @@ public class ClickGuiScreen extends GuiScreen {
    }
 
    /**
-    * Workspace sub-tab: 0 Browser, 1 Transform, 2 Points.
+    * Workspace sub-tab: 0 Browser, 1 Points.
     *
-    * <p>These are tabs inside the Schematic page rather than four more sidebar
+    * <p>These are tabs inside the Schematic page rather than more sidebar
     * entries, because they all act on the one loaded schematic -- separating
     * them at nav level would imply they were independent screens.
+    *
+    * <p>Rotate/flip/placement used to be a third "Transform" tab. They belong
+    * next to the position controls: you rotate a schematic and then immediately
+    * nudge it into place, and splitting those across tabs meant tabbing back and
+    * forth for what is one continuous adjustment.
     */
    private int schemTab = 0;
 
-   private static final String[] SCHEM_TABS = new String[]{"Browser", "Transform", "Points"};
+   private static final String[] SCHEM_TABS = new String[]{"Browser", "Points"};
 
    /** Hit box of each sub-tab, filled during layout. */
    private final int[] schemTabX = new int[SCHEM_TABS.length];
@@ -1304,11 +1309,6 @@ public class ClickGuiScreen extends GuiScreen {
       this.layoutSchematicTabs();
 
       if(this.schemTab == 1) {
-         this.layoutTransformPage();
-         return;
-      }
-
-      if(this.schemTab == 2) {
          this.layoutPointsPage();
          return;
       }
@@ -1336,8 +1336,21 @@ public class ClickGuiScreen extends GuiScreen {
          this.sButtons.add(new ClickGuiScreen.SButton(5, plusX, by + 2 * rowGap, 18, 14, "+"));
          int cy = by + 3 * rowGap + 4;
          this.sButtons.add(new ClickGuiScreen.SButton(6, colX, cy, colW, 16, "Move Here"));
-         this.sButtons.add(new ClickGuiScreen.SButton(7, colX, cy + 20, colW, 16, "Render"));
-         this.sButtons.add(new ClickGuiScreen.SButton(8, colX, cy + 40, colW, 16, "Printer"));
+         this.sButtons.add(new ClickGuiScreen.SButton(7, colX, cy + 18, colW, 16, "Render"));
+         this.sButtons.add(new ClickGuiScreen.SButton(8, colX, cy + 36, colW, 16, "Printer"));
+
+         // Transform block, paired two to a row under the position controls.
+         // Ids carry over from the old Transform tab so schematicAction stays
+         // one flat switch.
+         int half = (colW - 4) / 2;
+         int right = colX + half + 4;
+         int ty = cy + 66;
+         this.sButtons.add(new ClickGuiScreen.SButton(12, colX, ty, half, 16, "Rotate CW"));
+         this.sButtons.add(new ClickGuiScreen.SButton(13, right, ty, half, 16, "Rotate CCW"));
+         this.sButtons.add(new ClickGuiScreen.SButton(14, colX, ty + 18, half, 16, "Flip X"));
+         this.sButtons.add(new ClickGuiScreen.SButton(15, right, ty + 18, half, 16, "Flip Z"));
+         this.sButtons.add(new ClickGuiScreen.SButton(17, colX, ty + 36, half, 16, "Copy Pos"));
+         this.sButtons.add(new ClickGuiScreen.SButton(18, right, ty + 36, half, 16, "Apply Pos"));
       }
 
       int by2 = this.contentY + this.contentH - bottomRow;
@@ -1346,73 +1359,6 @@ public class ClickGuiScreen extends GuiScreen {
       this.sButtons.add(new ClickGuiScreen.SButton(9, this.contentX, by2, bw, bottomRow - 2, "New Test Box"));
       this.sButtons.add(new ClickGuiScreen.SButton(10, this.contentX + bw + gap, by2, bw, bottomRow - 2, "Open Folder"));
       this.sButtons.add(new ClickGuiScreen.SButton(11, this.contentX + 2 * (bw + gap), by2, bw, bottomRow - 2, "Unload"));
-   }
-
-   /**
-    * Transform page: rotate, flip and nudge the loaded schematic.
-    *
-    * <p>Button ids continue from the Browser page's 0-11 rather than restarting,
-    * so {@link #schematicAction} stays one flat switch and no id can mean two
-    * different things depending on which tab is open.
-    */
-   private void layoutTransformPage() {
-      int top = this.contentY + 44;
-      int gap = 6;
-      int bw = (this.contentW - gap) / 2;
-      int bh = 18;
-
-      this.sButtons.add(new ClickGuiScreen.SButton(12, this.contentX, top, bw, bh, "Rotate CW"));
-      this.sButtons.add(new ClickGuiScreen.SButton(13, this.contentX + bw + gap, top, bw, bh, "Rotate CCW"));
-
-      int row2 = top + bh + gap;
-      this.sButtons.add(new ClickGuiScreen.SButton(14, this.contentX, row2, bw, bh, "Flip X"));
-      this.sButtons.add(new ClickGuiScreen.SButton(15, this.contentX + bw + gap, row2, bw, bh, "Flip Z"));
-
-      int row3 = row2 + bh + gap * 3;
-      int tw = (this.contentW - gap * 2) / 3;
-      this.sButtons.add(new ClickGuiScreen.SButton(16, this.contentX, row3, tw, bh, "Move Here"));
-      this.sButtons.add(new ClickGuiScreen.SButton(17, this.contentX + tw + gap, row3, tw, bh, "Copy Placement"));
-      this.sButtons.add(new ClickGuiScreen.SButton(18, this.contentX + 2 * (tw + gap), row3, tw, bh, "Apply Placement"));
-
-      int row4 = row3 + bh + gap * 3;
-      int nw = (this.contentW - gap * 5) / 6;
-      String[] labels = new String[]{"-X", "+X", "-Y", "+Y", "-Z", "+Z"};
-      for(int i = 0; i < 6; ++i) {
-         this.sButtons.add(new ClickGuiScreen.SButton(19 + i,
-               this.contentX + i * (nw + gap), row4, nw, bh, labels[i]));
-      }
-
-   }
-
-   private void drawTransformPage(int mouseX, int mouseY) {
-      if(!SchematicaBridge.isAvailable()) {
-         this.fontRendererObj.drawStringWithShadow("Schematica mod isn\'t installed.",
-               (float)this.contentX, (float)(this.contentY + 44), -8088413);
-         return;
-      }
-
-      boolean has = SchematicaBridge.hasSchematic();
-      String header = has
-            ? "Transforming: " + (this.loadedFile != null ? this.loadedFile : SchematicaBridge.name())
-            : "Load a schematic from the Browser tab first";
-      this.fontRendererObj.drawStringWithShadow(this.trim(header, this.contentW),
-            (float)this.contentX, (float)(this.contentY + 6), has ? -10696961 : -8088413);
-
-      this.drawButtons(mouseX, mouseY);
-
-      int[] pos = SchematicaBridge.position();
-      String posText = pos == null ? "Position: -" : "Position: " + pos[0] + ", " + pos[1] + ", " + pos[2];
-      this.fontRendererObj.drawStringWithShadow(posText, (float)this.contentX,
-            (float)(this.contentY + this.contentH - 30), -8088413);
-
-      this.fontRendererObj.drawStringWithShadow("Nudge step: hold Shift for 5",
-            (float)this.contentX, (float)(this.contentY + this.contentH - 18), -10461088);
-
-      if(!this.schemStatus.isEmpty()) {
-         this.fontRendererObj.drawStringWithShadow(this.trim(this.schemStatus, this.contentW),
-               (float)this.contentX, (float)(this.contentY + this.contentH - 6), -8088413);
-      }
-
    }
 
    /** Points page: the Point A/B region and saving it out as a schematic. */
@@ -1496,11 +1442,6 @@ public class ClickGuiScreen extends GuiScreen {
       this.drawSchematicTabs(mouseX, mouseY);
 
       if(this.schemTab == 1) {
-         this.drawTransformPage(mouseX, mouseY);
-         return;
-      }
-
-      if(this.schemTab == 2) {
          this.drawPointsPage(mouseX, mouseY);
          return;
       }
@@ -1555,6 +1496,11 @@ public class ClickGuiScreen extends GuiScreen {
             this.fontRendererObj.drawStringWithShadow(axes[i] + " " + v, (float)colX,
                   (float)(by + i * rowGap + 3), editing ? -10696961 : (has ? -1379073 : -8088413));
          }
+
+         // Header for the transform block, aligned with the gap layoutSchematic
+         // leaves for it (those buttons start at cy + 66).
+         this.fontRendererObj.drawStringWithShadow("TRANSFORM", (float)colX,
+               (float)(by + 3 * rowGap + 58), -8088413);
 
          this.drawButtons(mouseX, mouseY);
          if(!this.schemStatus.isEmpty()) {

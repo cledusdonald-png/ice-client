@@ -1,21 +1,34 @@
 package com.iceclient.schematica;
 
 import net.minecraft.block.Block;
+import net.minecraft.block.BlockButton;
+import net.minecraft.block.BlockChest;
+import net.minecraft.block.BlockDispenser;
+import net.minecraft.block.BlockFurnace;
+import net.minecraft.block.BlockHopper;
+import net.minecraft.block.BlockLever;
+import net.minecraft.block.BlockPistonBase;
+import net.minecraft.block.BlockRedstoneComparator;
+import net.minecraft.block.BlockRedstoneRepeater;
+import net.minecraft.block.BlockStairs;
+import net.minecraft.block.properties.IProperty;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.client.Minecraft;
 import net.minecraft.init.Blocks;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemBlock;
 import net.minecraft.item.ItemStack;
+import net.minecraft.network.play.client.C03PacketPlayer;
+import net.minecraft.network.play.client.C09PacketHeldItemChange;
 import net.minecraft.util.BlockPos;
 import net.minecraft.util.EnumFacing;
-import net.minecraft.util.MathHelper;
 import net.minecraft.util.Vec3;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Our own placement loop, used by the printer's V2 mode.
@@ -31,6 +44,19 @@ import java.util.List;
  * list is built every {@link #REBUILD_INTERVAL} ticks and reused, and positions
  * are verified individually as they come up. Placing is then bounded per tick,
  * so a big queue costs the same per frame as a small one.
+ *
+ * <p><b>What the server actually sees.</b> Three things here are non-obvious and
+ * every one of them produced a visible bug when it was missing:
+ * <ul>
+ *   <li>The server places whatever slot <em>it</em> thinks you are holding. The
+ *       client field alone is not enough -- {@link C09PacketHeldItemChange} has
+ *       to go out, and it cannot be reverted in the same tick or it never sends.
+ *   <li>Directional blocks are oriented from the placer's rotation at the moment
+ *       of the click, so a dispenser only faces the right way if a look packet
+ *       precedes the placement.
+ *   <li>Blocks sitting in the main inventory are not placeable at all; they have
+ *       to be swapped into the hotbar first.
+ * </ul>
  */
 public final class PrintEngine {
 
@@ -38,10 +64,18 @@ public final class PrintEngine {
     *  up blocks a teammate placed, cheap enough not to matter. */
    private static final int REBUILD_INTERVAL = 10;
 
+   /** Breaking is bounded far tighter than placing: each break is a block you
+    *  destroy for real, so a runaway loop is destructive rather than just noisy. */
+   private static final int BREAK_BUDGET = 1;
+
    private final List<BlockPos> queue = new ArrayList<BlockPos>();
    private int rebuildIn;
    private int cursor;
    private int delayLeft;
+
+   /** Hotbar slot held before this tick started placing, or -1 when we have not
+    *  taken the hotbar over. Restored at the end of the batch, never mid-batch. */
+   private int slotToRestore = -1;
 
    /** Rebuilt each pass so a stale list cannot strand the printer. */
    private BlockPos lastCenter;
@@ -51,6 +85,7 @@ public final class PrintEngine {
       this.cursor = 0;
       this.rebuildIn = 0;
       this.delayLeft = 0;
+      this.slotToRestore = -1;
    }
 
    public int queued() {
@@ -85,14 +120,23 @@ public final class PrintEngine {
 
       int budget = cfg.placeInstantly ? Math.max(1, cfg.packetLimit) : 1;
       int sent = 0;
+      int broke = 0;
 
       while(this.cursor < this.queue.size() && sent < budget) {
          BlockPos pos = this.queue.get(this.cursor++);
 
-         if(this.place(mc, cfg, pos)) {
+         Result r = this.attempt(mc, cfg, pos, broke < BREAK_BUDGET);
+         if(r == Result.PLACED) {
             ++sent;
+         } else if(r == Result.BROKE) {
+            ++broke;
          }
       }
+
+      // Hand the hotbar back only once the whole batch is done. Restoring
+      // between placements is what silently broke every placement before: the
+      // revert cancelled the slot change before the client ever synced it.
+      this.releaseSlot(mc, cfg);
 
       if(sent > 0 && cfg.delay > 0) {
          this.delayLeft = cfg.delay;
@@ -100,6 +144,8 @@ public final class PrintEngine {
 
       return sent;
    }
+
+   private enum Result { NOTHING, PLACED, BROKE }
 
    /**
     * Collects positions that still need work, nearest first.
@@ -118,6 +164,7 @@ public final class PrintEngine {
       final Minecraft mc = Minecraft.getMinecraft();
       final double reach = cfg.placeDistance;
       final List<BlockPos> found = this.queue;
+      final boolean replaceWrong = cfg.replaceWrong;
 
       SchematicaBridge.forEachSchematicBlock(reach, new SchematicaBridge.SchemBlockVisitor() {
          public void accept(BlockPos world, IBlockState want) {
@@ -126,7 +173,7 @@ public final class PrintEngine {
             }
 
             IBlockState have = mc.theWorld.getBlockState(world);
-            if(have.getBlock() == want.getBlock()) {
+            if(matches(have, want)) {
                return;
             }
 
@@ -135,7 +182,7 @@ public final class PrintEngine {
 
             // A non-air mismatch is only worth queueing if we are allowed to
             // clear it -- otherwise we would retry it forever.
-            if(!empty && !cfg.replaceWrong) {
+            if(!empty && !replaceWrong) {
                return;
             }
 
@@ -151,31 +198,60 @@ public final class PrintEngine {
       });
    }
 
-   /** Attempts one position. Returns true when a packet was actually sent. */
-   private boolean place(Minecraft mc, Config cfg, BlockPos pos) {
+   /**
+    * Whether what is in the world is already what the schematic wants.
+    *
+    * <p>Block identity alone is not enough: a dispenser facing the wrong way and
+    * a repeater on the wrong delay are both "the right block" but a broken
+    * cannon. Orientation is compared too, so those get queued for a redo instead
+    * of being silently accepted.
+    */
+   private static boolean matches(IBlockState have, IBlockState want) {
+      if(have.getBlock() != want.getBlock()) {
+         return false;
+      }
+
+      EnumFacing hf = facingOf(have);
+      EnumFacing wf = facingOf(want);
+      return hf == null || wf == null || hf == wf;
+   }
+
+   /** The block's "facing" property, or null when it has none. */
+   private static EnumFacing facingOf(IBlockState state) {
+      for(Map.Entry<IProperty, Comparable> e : ((Map<IProperty, Comparable>)state.getProperties()).entrySet()) {
+         if("facing".equals(e.getKey().getName()) && e.getValue() instanceof EnumFacing) {
+            return (EnumFacing)e.getValue();
+         }
+      }
+
+      return null;
+   }
+
+   /** Attempts one position. */
+   private Result attempt(Minecraft mc, Config cfg, BlockPos pos, boolean mayBreak) {
       IBlockState want = SchematicaBridge.blockStateAt(pos);
       if(want == null) {
-         return false;
+         return Result.NOTHING;
       }
 
       if(cfg.disableGens && isGenerator(want.getBlock())) {
-         return false;
+         return Result.NOTHING;
       }
 
       IBlockState have = mc.theWorld.getBlockState(pos);
-      if(have.getBlock() == want.getBlock()) {
-         return false;
+      if(matches(have, want)) {
+         return Result.NOTHING;
       }
 
       double dist = mc.thePlayer.getDistanceSq(pos);
       if(dist > cfg.placeDistance * cfg.placeDistance) {
-         return false;
+         return Result.NOTHING;
       }
 
       boolean occupied = have.getBlock() != Blocks.air && !have.getBlock().getMaterial().isLiquid();
       if(occupied) {
-         if(!cfg.replaceWrong) {
-            return false;
+         if(!cfg.replaceWrong || !mayBreak) {
+            return Result.NOTHING;
          }
 
          // Break first; the placement lands on a later pass once the block is
@@ -185,23 +261,26 @@ public final class PrintEngine {
             mc.playerController.onPlayerDestroyBlock(pos, EnumFacing.UP);
          }
 
-         return true;
+         return Result.BROKE;
       }
 
-      int slot = findSlot(mc, cfg, want.getBlock());
+      int slot = this.resolveSlot(mc, cfg, want.getBlock());
       if(slot < 0) {
          // Nothing to place it with. Silently skipping is correct: the block
-         // may simply not be in the hotbar yet.
-         return false;
+         // may simply not be in the inventory at all.
+         return Result.NOTHING;
       }
 
       EnumFacing face = this.findSupport(mc, cfg, pos);
       if(face == null) {
-         return false;
+         return Result.NOTHING;
       }
 
-      int previous = mc.thePlayer.inventory.currentItem;
-      mc.thePlayer.inventory.currentItem = slot;
+      this.holdSlot(mc, slot);
+
+      if(cfg.orientBlocks) {
+         this.aimFor(mc, want);
+      }
 
       BlockPos against = pos.offset(face);
       EnumFacing clickFace = face.getOpposite();
@@ -214,13 +293,182 @@ public final class PrintEngine {
             mc.thePlayer.getHeldItem(), against, clickFace, hit);
       mc.thePlayer.swingItem();
 
-      // Restoring the slot keeps the printer from stealing the hotbar between
-      // placements, which otherwise makes fighting mid-print impossible.
-      if(!cfg.keepSlot) {
-         mc.thePlayer.inventory.currentItem = previous;
+      return Result.PLACED;
+   }
+
+   // ------------------------------------------------------------------
+   // Held item
+   // ------------------------------------------------------------------
+
+   /**
+    * Selects a hotbar slot and tells the server about it.
+    *
+    * <p>The packet is the whole point. Vanilla only syncs {@code currentItem} on
+    * the following tick, by diffing against the previous value -- so a printer
+    * that sets the field and restores it within one tick syncs nothing, and the
+    * server places whatever you were actually holding into every position.
+    */
+   private void holdSlot(Minecraft mc, int slot) {
+      if(this.slotToRestore < 0) {
+         this.slotToRestore = mc.thePlayer.inventory.currentItem;
       }
 
-      return true;
+      if(mc.thePlayer.inventory.currentItem != slot) {
+         mc.thePlayer.inventory.currentItem = slot;
+         mc.getNetHandler().addToSendQueue(new C09PacketHeldItemChange(slot));
+      }
+   }
+
+   /** Gives the hotbar back after the batch, syncing that too. */
+   private void releaseSlot(Minecraft mc, Config cfg) {
+      if(this.slotToRestore >= 0) {
+         if(!cfg.keepSlot && mc.thePlayer.inventory.currentItem != this.slotToRestore) {
+            mc.thePlayer.inventory.currentItem = this.slotToRestore;
+            mc.getNetHandler().addToSendQueue(new C09PacketHeldItemChange(this.slotToRestore));
+         }
+
+         this.slotToRestore = -1;
+      }
+   }
+
+   // ------------------------------------------------------------------
+   // Orientation
+   // ------------------------------------------------------------------
+
+   /**
+    * Points the player so vanilla's placement logic derives the facing the
+    * schematic asked for, then sends the rotation.
+    *
+    * <p>Only the look packet is sent, not a position one, and the player's own
+    * rotation fields are left alone -- your view does not move, but the server
+    * has the rotation it needs when the placement arrives a moment later.
+    */
+   private void aimFor(Minecraft mc, IBlockState want) {
+      EnumFacing target = facingOf(want);
+      if(target == null) {
+         return;
+      }
+
+      Block b = want.getBlock();
+      boolean opposite = b instanceof BlockDispenser || b instanceof BlockFurnace
+            || b instanceof BlockChest || b instanceof BlockPistonBase
+            || b instanceof BlockRedstoneRepeater || b instanceof BlockRedstoneComparator
+            || b instanceof BlockHopper;
+      boolean direct = b instanceof BlockStairs || b instanceof BlockLever
+            || b instanceof BlockButton;
+
+      if(!opposite && !direct) {
+         return;
+      }
+
+      // Vertical facings come from pitch, horizontals from yaw.
+      float yaw = mc.thePlayer.rotationYaw;
+      float pitch = mc.thePlayer.rotationPitch;
+
+      if(target == EnumFacing.UP) {
+         pitch = opposite ? 90.0F : -90.0F;
+      } else if(target == EnumFacing.DOWN) {
+         pitch = opposite ? -90.0F : 90.0F;
+      } else {
+         EnumFacing look = opposite ? target.getOpposite() : target;
+         yaw = yawFor(look);
+         pitch = 0.0F;
+      }
+
+      mc.getNetHandler().addToSendQueue(
+            new C03PacketPlayer.C05PacketPlayerLook(yaw, pitch, mc.thePlayer.onGround));
+   }
+
+   /** Yaw that makes {@code getHorizontalFacing()} return the given direction. */
+   private static float yawFor(EnumFacing f) {
+      switch(f) {
+         case SOUTH: return 0.0F;
+         case WEST:  return 90.0F;
+         case NORTH: return 180.0F;
+         case EAST:  return -90.0F;
+         default:    return 0.0F;
+      }
+   }
+
+   // ------------------------------------------------------------------
+   // Inventory
+   // ------------------------------------------------------------------
+
+   /**
+    * A hotbar slot holding the block, pulling it up from the main inventory when
+    * it is not already down there.
+    *
+    * <p>Without the pull the printer just stops on any block that scrolled out
+    * of the hotbar -- it reports nothing wrong, it simply never places it, which
+    * reads as "the printer skipped half the cannon".
+    */
+   private int resolveSlot(Minecraft mc, Config cfg, Block block) {
+      Item wanted = Item.getItemFromBlock(block);
+      if(wanted == null) {
+         return -1;
+      }
+
+      int inHotbar = findInHotbar(mc, cfg, wanted);
+      if(inHotbar >= 0 || !cfg.useInventory) {
+         return inHotbar;
+      }
+
+      // Main inventory is container slots 9..35, which happen to be the same
+      // indices the player's own inventory uses.
+      for(int i = 9; i < 36; ++i) {
+         ItemStack s = mc.thePlayer.inventory.getStackInSlot(i);
+         if(!isUsable(s, wanted)) {
+            continue;
+         }
+
+         int target = spareHotbarSlot(mc, cfg);
+         if(target < 0) {
+            return -1;
+         }
+
+         // Mode 2 = swap with hotbar; button carries the destination slot.
+         mc.playerController.windowClick(0, i, target, 2, mc.thePlayer);
+         return findInHotbar(mc, cfg, wanted);
+      }
+
+      return -1;
+   }
+
+   private static int findInHotbar(Minecraft mc, Config cfg, Item wanted) {
+      for(int i = 0; i < 9; ++i) {
+         if(cfg.slots[i] && isUsable(mc.thePlayer.inventory.getStackInSlot(i), wanted)) {
+            return i;
+         }
+      }
+
+      return -1;
+   }
+
+   private static boolean isUsable(ItemStack s, Item wanted) {
+      return s != null && s.stackSize > 0 && s.getItem() instanceof ItemBlock && s.getItem() == wanted;
+   }
+
+   /**
+    * Where to drop a pulled stack. Prefers an empty enabled slot so nothing you
+    * are carrying gets displaced; falls back to the last enabled slot, since
+    * whatever lived there goes back to the inventory rather than being lost.
+    */
+   private static int spareHotbarSlot(Minecraft mc, Config cfg) {
+      int fallback = -1;
+
+      for(int i = 0; i < 9; ++i) {
+         if(!cfg.slots[i]) {
+            continue;
+         }
+
+         if(mc.thePlayer.inventory.getStackInSlot(i) == null) {
+            return i;
+         }
+
+         fallback = i;
+      }
+
+      return fallback;
    }
 
    /**
@@ -249,31 +497,6 @@ public final class PrintEngine {
       return null;
    }
 
-   /** Hotbar slot holding the block, or -1. Only enabled slots are considered. */
-   private static int findSlot(Minecraft mc, Config cfg, Block block) {
-      Item wanted = Item.getItemFromBlock(block);
-      if(wanted == null) {
-         return -1;
-      }
-
-      for(int i = 0; i < 9; ++i) {
-         if(!cfg.slots[i]) {
-            continue;
-         }
-
-         ItemStack s = mc.thePlayer.inventory.getStackInSlot(i);
-         if(s == null || s.stackSize <= 0 || !(s.getItem() instanceof ItemBlock)) {
-            continue;
-         }
-
-         if(s.getItem() == wanted) {
-            return i;
-         }
-      }
-
-      return -1;
-   }
-
    /**
     * Server generator blocks, which are ordinary blocks carrying NBT.
     *
@@ -297,6 +520,8 @@ public final class PrintEngine {
       public boolean breakInstantly;
       public boolean disableGens;
       public boolean keepSlot;
+      public boolean useInventory = true;
+      public boolean orientBlocks = true;
       public boolean[] slots = new boolean[]{true, true, true, true, true, true, true, true, true};
    }
 }
