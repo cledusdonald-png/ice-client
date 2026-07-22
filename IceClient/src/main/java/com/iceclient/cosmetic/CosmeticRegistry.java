@@ -68,13 +68,15 @@ public final class CosmeticRegistry {
             "Darker than the wall you're standing in.", null, 0x2A1E3D));
 
       // ---- pets --------------------------------------------------------
-      add(new Cosmetic("pet_cube", "Ice Shard", CosmeticType.PET,
+      // Ground companions rather than orbiting trinkets; the shapes live in
+      // BuiltInPets, in the same format custom pets use.
+      add(new Cosmetic("pet_snowman", "Snowman", CosmeticType.PET,
             Cosmetic.Rarity.RARE, 900,
-            "A shard that orbits your shoulder.", null, 0x7FC9E8));
+            "Waddles along behind you. Scarf included.", null, 0xFFFFFF));
 
-      add(new Cosmetic("pet_ember", "Ember", CosmeticType.PET,
-            Cosmetic.Rarity.EPIC, 1600,
-            "Warm, for once. Bobs along behind you.", null, 0xFF8A3D));
+      add(new Cosmetic("pet_polarbear", "Polar Bear", CosmeticType.PET,
+            Cosmetic.Rarity.EPIC, 1800,
+            "Small, for a bear. Follows you everywhere.", null, 0xF4F7F9));
 
       // ---- trails ------------------------------------------------------
       add(new Cosmetic("trail_frost", "Frost Trail", CosmeticType.TRAIL,

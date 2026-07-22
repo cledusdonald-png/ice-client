@@ -34,6 +34,9 @@ public final class AccessoryRenderer {
    private static final float PLAYER_SCALE = 0.9375F;
    private static final float MODEL_Y = -1.5078125F;
 
+   /** Top of the head in this model space; see the note in drawHat. */
+   private static final float HEAD_TOP = -0.42F;
+
    /** Recent positions per player, for trails. Bounded, and cleared on world change. */
    private final Map<String, List<double[]>> trails = new HashMap<String, List<double[]>>();
    private static final int TRAIL_POINTS = 22;
@@ -48,7 +51,6 @@ public final class AccessoryRenderer {
       float pt = event.partialRenderTick;
       Cosmetic hat = worn(p, CosmeticType.HAT);
       Cosmetic wings = worn(p, CosmeticType.WINGS);
-      Cosmetic pet = worn(p, CosmeticType.PET);
       Cosmetic trail = worn(p, CosmeticType.TRAIL);
 
       if(trail != null) {
@@ -56,7 +58,10 @@ public final class AccessoryRenderer {
          drawTrail(p, trail);
       }
 
-      if(hat == null && wings == null && pet == null) {
+      // Pets are not handled here any more: they walk on the ground with their
+      // own position and heading, which cannot be expressed inside the player's
+      // transform. See PetRenderer.
+      if(hat == null && wings == null) {
          return;
       }
 
@@ -73,18 +78,12 @@ public final class AccessoryRenderer {
       GlStateManager.scale(PLAYER_SCALE, PLAYER_SCALE, PLAYER_SCALE);
       GlStateManager.translate(0.0F, MODEL_Y, 0.0F);
 
-      float spin = (p.ticksExisted + pt) * 2.0F;
-
       if(hat != null) {
          drawHat(hat, p, pt);
       }
 
       if(wings != null) {
          drawWings(wings, p, pt);
-      }
-
-      if(pet != null) {
-         drawPet(pet, spin);
       }
 
       GlStateManager.disableBlend();
@@ -107,31 +106,39 @@ public final class AccessoryRenderer {
             - interpolate(p.prevRenderYawOffset, p.renderYawOffset, pt);
       float headPitch = interpolate(p.prevRotationPitch, p.rotationPitch, pt);
 
-      GlStateManager.translate(0.0F, -24.0F * 0.0625F, 0.0F);
       GlStateManager.rotate(headYaw, 0.0F, 1.0F, 0.0F);
       GlStateManager.rotate(headPitch, 1.0F, 0.0F, 0.0F);
+
+      // Worked out rather than guessed at, since guessing put hats a metre up:
+      // this space has its origin 1.41 blocks above the feet with +y pointing
+      // DOWN and one unit = 0.9375 blocks. The head tops out at 1.8 blocks, so
+      // the crown of the head is (1.8 - 1.41) / 0.9375 = 0.42 units negative.
+      GlStateManager.translate(0.0F, HEAD_TOP, 0.0F);
 
       setColor(c.getColor(), 1.0F);
 
       if("hat_crown".equals(c.getId())) {
-         // Five tapering spikes around the crown of the head.
+         // Band sitting on the head, spikes rising from it.
+         box(0.34F, 0.05F, 0.34F);
+
          for(int i = 0; i < 5; ++i) {
             GlStateManager.pushMatrix();
             GlStateManager.rotate(i * 72.0F, 0.0F, 1.0F, 0.0F);
-            GlStateManager.translate(0.0F, -0.02F, -0.16F);
-            spike(0.07F, 0.22F);
+            GlStateManager.translate(0.0F, -0.05F, -0.13F);
+            GlStateManager.rotate(180.0F, 1.0F, 0.0F, 0.0F);
+            spike(0.07F, 0.20F);
             GlStateManager.popMatrix();
          }
-
-         GlStateManager.translate(0.0F, -0.02F, 0.0F);
-         box(0.30F, 0.05F, 0.30F);
       } else if("hat_beanie".equals(c.getId())) {
-         GlStateManager.translate(0.0F, -0.06F, 0.0F);
-         box(0.52F, 0.14F, 0.52F);
+         // Pulled down over the head a little, the way a beanie sits.
+         GlStateManager.translate(0.0F, 0.07F, 0.0F);
+         box(0.56F, 0.16F, 0.56F);
+         GlStateManager.translate(0.0F, -0.16F, 0.0F);
+         box(0.46F, 0.10F, 0.46F);
          GlStateManager.translate(0.0F, -0.10F, 0.0F);
-         box(0.42F, 0.10F, 0.42F);
+         box(0.12F, 0.07F, 0.12F);      // bobble
       } else if("hat_halo".equals(c.getId())) {
-         GlStateManager.translate(0.0F, -0.34F, 0.0F);
+         GlStateManager.translate(0.0F, -0.22F, 0.0F);
          ring(0.26F, 0.04F);
       }
 
@@ -141,7 +148,9 @@ public final class AccessoryRenderer {
    /** Two angled sheets on the back, opening and closing as you move. */
    private void drawWings(Cosmetic c, EntityPlayer p, float pt) {
       GlStateManager.pushMatrix();
-      GlStateManager.translate(0.0F, -12.0F * 0.0625F, 0.14F);
+      // Upper back: a little below the neck (+y is down here) and behind it.
+      // The cape sits at z = +0.125, which is what establishes +z as "back".
+      GlStateManager.translate(0.0F, 0.16F, 0.14F);
 
       float speed = (float)Math.min(0.35D,
             Math.sqrt(p.motionX * p.motionX + p.motionZ * p.motionZ));
@@ -161,30 +170,6 @@ public final class AccessoryRenderer {
       GlStateManager.popMatrix();
    }
 
-   /** A small shape orbiting the player's shoulder height. */
-   private void drawPet(Cosmetic c, float spin) {
-      GlStateManager.pushMatrix();
-
-      double r = 0.55D;
-      double a = Math.toRadians(spin);
-      float bob = (float)Math.sin(spin * 0.05D) * 0.08F;
-
-      GlStateManager.translate(Math.cos(a) * r, -1.35F + bob, Math.sin(a) * r);
-      GlStateManager.rotate(spin * 1.6F, 0.3F, 1.0F, 0.2F);
-
-      setColor(c.getColor(), 0.95F);
-
-      if("pet_ember".equals(c.getId())) {
-         // Two nested shapes so it reads as glowing rather than solid.
-         box(0.16F, 0.16F, 0.16F);
-         setColor(0xFFE9B0, 0.55F);
-         box(0.24F, 0.24F, 0.24F);
-      } else {
-         spike(0.12F, 0.30F);
-      }
-
-      GlStateManager.popMatrix();
-   }
 
    // ------------------------------------------------------------------
    // trails
@@ -327,23 +312,42 @@ public final class AccessoryRenderer {
       tess.draw();
    }
 
+   /**
+    * A wing silhouette, filled as a fan from the shoulder.
+    *
+    * <p>Traced as an outline rather than assembled from separate triangles: the
+    * first version fanned three "fingers" from one point and produced
+    * overlapping slivers that read as a solid arrowhead. An outline with a
+    * notched trailing edge is what makes it look like a wing from any angle.
+    *
+    * <p>Coordinates are (outward, up). Model +y is down here, so they are
+    * negated on the way out.
+    */
    private static void wingSheet(int side) {
+      // Leading edge sweeping out to the tip, then a scalloped trailing edge
+      // coming back to the root -- the notches are what read as feathers.
+      float[][] outline = new float[][]{
+            {0.04F, 0.14F},
+            {0.30F, 0.30F},
+            {0.58F, 0.34F},
+            {0.82F, 0.22F},   // tip
+            {0.70F, 0.06F},
+            {0.56F, 0.12F},
+            {0.50F, -0.06F},
+            {0.36F, 0.02F},
+            {0.30F, -0.16F},
+            {0.18F, -0.04F},
+            {0.10F, -0.20F},
+            {0.02F, -0.06F}};
+
       Tessellator tess = Tessellator.getInstance();
       WorldRenderer wr = tess.getWorldRenderer();
-      wr.begin(4, DefaultVertexFormats.POSITION);
 
-      // Three tapering fingers, longest at the top -- reads as a wing rather
-      // than a flat slab from any angle.
-      float[][] tips = new float[][]{{0.72F, -0.30F}, {0.66F, 0.06F}, {0.46F, 0.34F}};
-      float prevX = 0.0F;
-      float prevY = -0.34F;
+      wr.begin(6, DefaultVertexFormats.POSITION);   // GL_TRIANGLE_FAN
+      wr.pos(0, 0, 0).endVertex();
 
-      for(float[] tip : tips) {
-         wr.pos(0, -0.30F, 0).endVertex();
-         wr.pos(side * prevX, prevY, 0).endVertex();
-         wr.pos(side * tip[0], tip[1], 0).endVertex();
-         prevX = tip[0];
-         prevY = tip[1];
+      for(float[] pt : outline) {
+         wr.pos(side * pt[0], -pt[1], 0).endVertex();
       }
 
       tess.draw();

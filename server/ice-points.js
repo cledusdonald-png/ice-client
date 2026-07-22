@@ -45,8 +45,8 @@ const PRICES = {
   wings_frost: 1800,
   wings_shadow: 3000,
 
-  pet_cube: 900,
-  pet_ember: 1600,
+  pet_snowman: 900,
+  pet_polarbear: 1800,
 
   trail_frost: 300,
   trail_aurora: 1400,

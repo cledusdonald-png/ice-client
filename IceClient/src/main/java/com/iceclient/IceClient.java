@@ -38,7 +38,7 @@ public class IceClient {
     * {@link #displayVersion()}, so the only edit when releasing is this line
     * and {@code mod_version} in gradle.properties.
     */
-   public static final String VERSION = "1.6.0";
+   public static final String VERSION = "1.8.0";
 
    public static final Logger LOGGER = LogManager.getLogger("Ice Client");
 
@@ -96,6 +96,7 @@ public class IceClient {
       MinecraftForge.EVENT_BUS.register(new MainMenuHandler());
       MinecraftForge.EVENT_BUS.register(new com.iceclient.cosmetic.render.CapeRenderer());
       MinecraftForge.EVENT_BUS.register(new com.iceclient.cosmetic.render.AccessoryRenderer());
+      MinecraftForge.EVENT_BUS.register(new com.iceclient.cosmetic.render.PetRenderer());
       MinecraftForge.EVENT_BUS.register(COSMETIC_SYNC);
       ClientCommandHandler.instance.registerCommand(new SchemCommand());
       com.iceclient.command.MacroCommand.register();

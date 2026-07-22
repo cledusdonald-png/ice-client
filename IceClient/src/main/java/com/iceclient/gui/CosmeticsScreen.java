@@ -146,61 +146,102 @@ public class CosmeticsScreen extends GuiScreen {
     * are wear, take off, and open the folder.
     */
    private void drawCustomList(int mouseX, int mouseY) {
-      List<String> capes = com.iceclient.cosmetic.CustomCapes.names();
-      int rowH = 16;
+      int rowH = 14;
       int y = this.listY;
+      this.customRows.clear();
 
-      String hint = "Drop 64x32 PNGs in the folder, then Refresh.";
-      this.fontRendererObj.drawString(hint, this.listX, y, MUTED);
-      y += 14;
+      // --- capes ---
+      this.fontRendererObj.drawString("CAPES " + GRAY_HINT_CAPE, this.listX, y, MUTED);
+      y += 12;
+
+      List<String> capes = com.iceclient.cosmetic.CustomCapes.names();
+      String activeCape = CosmeticManager.getCustomCape();
 
       if(capes.isEmpty()) {
-         this.fontRendererObj.drawString("No capes found.", this.listX, y, MUTED);
-
-         String err = com.iceclient.cosmetic.CustomCapes.getLastError();
-         if(!err.isEmpty()) {
-            List<String> wrapped = this.fontRendererObj.listFormattedStringToWidth(err, this.listW);
-            int ey = y + 14;
-            for(int i = 0; i < wrapped.size() && i < 3; ++i) {
-               this.fontRendererObj.drawString(wrapped.get(i), this.listX, ey, BAD);
-               ey += 10;
-            }
-         }
+         this.fontRendererObj.drawString("  none", this.listX, y, 0xFF44505E);
+         y += rowH;
       } else {
-         String active = com.iceclient.cosmetic.CosmeticManager.getCustomCape();
-
          for(String name : capes) {
-            if(y > this.listY + this.listH - rowH) {
-               break;
-            }
-
-            boolean on = name.equals(active);
-            boolean hov = mouseX >= this.listX && mouseX <= this.listX + this.listW
-                  && mouseY >= y && mouseY <= y + rowH - 2;
-
-            drawRect(this.listX, y, this.listX + this.listW, y + rowH - 2,
-                  hov ? CARD_HOVER : CARD_BG);
-            if(on) {
-               drawRect(this.listX, y, this.listX + 2, y + rowH - 2, GOOD);
-            }
-
-            this.fontRendererObj.drawString(name, this.listX + 8, y + 3, on ? TEXT : MUTED);
-            if(on) {
-               this.fontRendererObj.drawString("WORN",
-                     this.listX + this.listW - this.fontRendererObj.getStringWidth("WORN") - 8,
-                     y + 3, GOOD);
-            }
-
-            y += rowH;
+            y = customRow(name, "cape", name.equals(activeCape), y, rowH, mouseX, mouseY);
          }
       }
 
-      // Two buttons at the foot of the list column.
+      // --- pets ---
+      y += 6;
+      this.fontRendererObj.drawString("PETS " + GRAY_HINT_PET, this.listX, y, MUTED);
+      y += 12;
+
+      List<String> pets = com.iceclient.cosmetic.CustomPets.names();
+      String activePet = CosmeticManager.getCustomPet();
+
+      if(pets.isEmpty()) {
+         this.fontRendererObj.drawString("  none", this.listX, y, 0xFF44505E);
+         y += rowH;
+      } else {
+         for(String name : pets) {
+            y = customRow(name, "pet", name.equals(activePet), y, rowH, mouseX, mouseY);
+         }
+      }
+
+      // --- problems ---
+      List<String> problems = new java.util.ArrayList<String>(
+            com.iceclient.cosmetic.CustomPets.getErrors());
+      String capeErr = com.iceclient.cosmetic.CustomCapes.getLastError();
+      if(!capeErr.isEmpty()) {
+         problems.add(capeErr);
+      }
+
+      int limit = this.listY + this.listH - 24;
+      if(!problems.isEmpty() && y < limit) {
+         y += 6;
+         for(String p : problems) {
+            for(String line : this.fontRendererObj.listFormattedStringToWidth(p, this.listW)) {
+               if(y > limit) {
+                  break;
+               }
+               this.fontRendererObj.drawString(line, this.listX, y, BAD);
+               y += 9;
+            }
+         }
+      }
+
       int bw = (this.listW - 6) / 2;
       int by = this.listY + this.listH - 18;
       drawButton(this.listX, by, bw, "Refresh", mouseX, mouseY);
       drawButton(this.listX + bw + 6, by, bw, "Open Folder", mouseX, mouseY);
    }
+
+   private static final String GRAY_HINT_CAPE = "§8(64x32 png)";
+   private static final String GRAY_HINT_PET = "§8(json)";
+
+   /** One clickable row; records its bounds so the click handler stays in step. */
+   private int customRow(String name, String kind, boolean on, int y, int rowH,
+                         int mouseX, int mouseY) {
+      if(y > this.listY + this.listH - 24) {
+         return y;
+      }
+
+      boolean hov = mouseX >= this.listX && mouseX <= this.listX + this.listW
+            && mouseY >= y && mouseY <= y + rowH - 2;
+
+      drawRect(this.listX, y, this.listX + this.listW, y + rowH - 2, hov ? CARD_HOVER : CARD_BG);
+      if(on) {
+         drawRect(this.listX, y, this.listX + 2, y + rowH - 2, GOOD);
+      }
+
+      this.fontRendererObj.drawString(name, this.listX + 8, y + 2, on ? TEXT : MUTED);
+      if(on) {
+         this.fontRendererObj.drawString("WORN",
+               this.listX + this.listW - this.fontRendererObj.getStringWidth("WORN") - 8,
+               y + 2, GOOD);
+      }
+
+      this.customRows.add(new Object[]{Integer.valueOf(y), Integer.valueOf(y + rowH - 2), kind, name});
+      return y + rowH;
+   }
+
+   /** {top, bottom, kind, name} per drawn row, rebuilt each frame. */
+   private final List<Object[]> customRows = new java.util.ArrayList<Object[]>();
 
    private void drawButton(int x, int y, int w, String label, int mouseX, int mouseY) {
       boolean hov = mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + 16;
@@ -443,6 +484,7 @@ public class CosmeticsScreen extends GuiScreen {
             this.scroll = 0;
             if(i == this.customTab) {
                com.iceclient.cosmetic.CustomCapes.reload();
+               com.iceclient.cosmetic.CustomPets.reload();
                this.selected = null;
             } else {
                List<Cosmetic> items = current();
@@ -487,37 +529,47 @@ public class CosmeticsScreen extends GuiScreen {
       if(mouseY >= by && mouseY <= by + 16) {
          if(mouseX >= this.listX && mouseX <= this.listX + bw) {
             com.iceclient.cosmetic.CustomCapes.reload();
-            say("Reloaded — " + com.iceclient.cosmetic.CustomCapes.names().size() + " found.");
+            com.iceclient.cosmetic.CustomPets.reload();
+            say("Reloaded — " + com.iceclient.cosmetic.CustomCapes.names().size()
+                  + " capes, " + com.iceclient.cosmetic.CustomPets.names().size() + " pets.");
             return;
          }
 
          if(mouseX >= this.listX + bw + 6 && mouseX <= this.listX + this.listW) {
             try {
-               java.awt.Desktop.getDesktop().open(com.iceclient.cosmetic.CustomCapes.folder());
+               // Opens the parent, so both capes/ and pets/ are one click away.
+               java.awt.Desktop.getDesktop().open(
+                     com.iceclient.cosmetic.CustomCapes.folder().getParentFile());
             } catch (Exception e) {
-               say("!Couldn't open the folder — it's at .minecraft/config/iceclient/capes");
+               say("!Couldn't open it — look in .minecraft/config/iceclient");
             }
             return;
          }
       }
 
-      List<String> capes = com.iceclient.cosmetic.CustomCapes.names();
-      int y = this.listY + 14;
+      // Rows are recorded while drawing, so this cannot drift out of step with
+      // the layout the way recomputing the positions here would.
+      for(Object[] row : this.customRows) {
+         int top = ((Integer)row[0]).intValue();
+         int bottom = ((Integer)row[1]).intValue();
 
-      for(String name : capes) {
-         if(mouseY >= y && mouseY <= y + 14
+         if(mouseY >= top && mouseY <= bottom
                && mouseX >= this.listX && mouseX <= this.listX + this.listW) {
-            if(name.equals(CosmeticManager.getCustomCape())) {
-               CosmeticManager.setCustomCape(null);
-               say("Took off " + name + ".");
+            String kind = (String)row[2];
+            String name = (String)row[3];
+
+            if("cape".equals(kind)) {
+               boolean on = name.equals(CosmeticManager.getCustomCape());
+               CosmeticManager.setCustomCape(on ? null : name);
+               say((on ? "Took off " : "Wearing ") + name + ".");
             } else {
-               CosmeticManager.setCustomCape(name);
-               say("Wearing " + name + ".");
+               boolean on = name.equals(CosmeticManager.getCustomPet());
+               CosmeticManager.setCustomPet(on ? null : name);
+               say((on ? "Put away " : "Out with ") + name + ".");
             }
+
             return;
          }
-
-         y += 16;
       }
    }
 

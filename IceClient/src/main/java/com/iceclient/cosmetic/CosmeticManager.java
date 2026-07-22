@@ -43,6 +43,20 @@ public final class CosmeticManager {
     */
    private static String customCape;
 
+   /** A pet from the user's own folder, or null. Same reasoning as customCape. */
+   private static String customPet;
+
+   public static String getCustomPet() {
+      return customPet;
+   }
+
+   public static void setCustomPet(String name) {
+      customPet = name;
+      if(name != null) {
+         equipped.remove(CosmeticType.PET);
+      }
+   }
+
    public static String getCustomCape() {
       return customCape;
    }
