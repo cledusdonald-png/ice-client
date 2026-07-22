@@ -119,7 +119,9 @@ ipcMain.on('win:close', (e) => BrowserWindow.fromWebContents(e.sender)?.close())
 ipcMain.handle('settings:get', async () => {
   const s = readSettings();
   s.ramGb = clampRam(s.ramGb);
-  return { ...s, maxRamGb: maxRamGb(), totalRamGb: totalRamGb() };
+  // javaFound lets the UI report what was actually detected, rather than
+  // claiming Java is present and only discovering otherwise at launch.
+  return { ...s, maxRamGb: maxRamGb(), totalRamGb: totalRamGb(), javaFound: !!findJava8() };
 });
 
 ipcMain.handle('settings:set', async (e, patch) => {

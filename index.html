@@ -6,9 +6,9 @@
 <title>Ice Client</title>
 <style>
   :root {
-    --ground: #05080e;
-    --panel: rgba(148, 197, 232, 0.05);
-    --panel-line: rgba(150, 200, 255, 0.12);
+    --ground: #04070d;
+    --panel: rgba(12, 30, 48, 0.55);
+    --panel-line: rgba(120, 190, 255, 0.22);
     --ice: #6fd6ff;
     --ice-bright: #a9e9ff;
     --ice-deep: #2f7fa6;
@@ -21,44 +21,74 @@
   }
 
   * { box-sizing: border-box; }
-
   html, body { height: 100%; }
+
   body {
     margin: 0;
     font-family: var(--body);
     color: var(--frost);
-    background:
-      radial-gradient(1200px 700px at 15% -10%, rgba(56, 138, 184, 0.22), transparent 60%),
-      radial-gradient(900px 600px at 100% 110%, rgba(38, 92, 130, 0.20), transparent 55%),
-      var(--ground);
+    background: var(--ground);
     overflow: hidden;
     -webkit-user-select: none;
     user-select: none;
   }
 
-  .aura {
-    position: fixed; inset: -20%; z-index: 0; pointer-events: none;
+  /* ---- backdrop -------------------------------------------------------
+     Built in CSS rather than shipping an image: it animates, it costs no
+     file size, and it cannot fail to load. Aurora bands drift over a deep
+     blue ground, with two snow layers falling at different speeds.        */
+
+  .sky {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
     background:
-      radial-gradient(600px 400px at 30% 40%, rgba(111, 214, 255, 0.10), transparent 60%),
-      radial-gradient(520px 520px at 72% 62%, rgba(47, 127, 166, 0.12), transparent 60%);
-    filter: blur(8px);
-    animation: drift 22s ease-in-out infinite alternate;
+      radial-gradient(1400px 800px at 50% -20%, rgba(52, 150, 200, 0.30), transparent 62%),
+      radial-gradient(900px 600px at 12% 8%, rgba(48, 220, 180, 0.14), transparent 60%),
+      radial-gradient(800px 620px at 88% 12%, rgba(80, 140, 255, 0.16), transparent 60%),
+      radial-gradient(1000px 700px at 50% 115%, rgba(20, 60, 95, 0.55), transparent 60%);
+  }
+
+  .aurora {
+    position: fixed; inset: -25% -10% auto; height: 70%; z-index: 0; pointer-events: none;
+    background:
+      radial-gradient(60% 40% at 25% 50%, rgba(90, 255, 210, 0.16), transparent 70%),
+      radial-gradient(50% 45% at 62% 40%, rgba(110, 200, 255, 0.14), transparent 70%);
+    filter: blur(26px);
+    animation: drift 26s ease-in-out infinite alternate;
   }
   @keyframes drift {
-    from { transform: translate3d(-2%, -1%, 0) scale(1); }
-    to   { transform: translate3d(3%, 2%, 0) scale(1.08); }
+    from { transform: translate3d(-3%, -2%, 0) scaleY(1); opacity: 0.85; }
+    to   { transform: translate3d(4%, 3%, 0) scaleY(1.15); opacity: 1; }
+  }
+
+  .snow {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: 0.5;
+    background-image:
+      radial-gradient(2px 2px at 12% 20%, #fff, transparent),
+      radial-gradient(1px 1px at 34% 60%, #cfeaff, transparent),
+      radial-gradient(2px 2px at 58% 35%, #fff, transparent),
+      radial-gradient(1px 1px at 77% 72%, #cfeaff, transparent),
+      radial-gradient(1px 1px at 91% 28%, #fff, transparent);
+    background-size: 100% 100%;
+    animation: fall 14s linear infinite;
+  }
+  .snow.slow { opacity: 0.28; animation-duration: 26s; transform: scale(1.6); }
+  @keyframes fall {
+    from { background-position: 0 -100%; }
+    to   { background-position: 0 100%; }
   }
 
   .app { position: relative; z-index: 1; height: 100vh; display: flex; flex-direction: column; }
 
+  /* ---- titlebar ---- */
   .titlebar {
     height: 40px; flex: none;
     display: flex; align-items: center; justify-content: space-between;
     padding: 0 8px 0 16px;
-    border-bottom: 1px solid var(--panel-line);
     -webkit-app-region: drag;
   }
-  .tb-title { font-family: var(--display); font-size: 12px; letter-spacing: 0.28em; text-transform: uppercase; color: var(--steel); }
+  .tb-left { display: flex; align-items: center; gap: 10px; }
+  .tb-mark { width: 16px; height: 16px; }
+  .tb-title { font-family: var(--display); font-size: 12px; letter-spacing: 0.26em; text-transform: uppercase; color: var(--steel); }
   .tb-buttons { display: flex; -webkit-app-region: no-drag; }
   .tb-btn {
     width: 40px; height: 32px; border: none; background: none; color: var(--steel);
@@ -67,24 +97,129 @@
   .tb-btn:hover { background: rgba(255,255,255,0.06); color: var(--frost); }
   .tb-btn.close:hover { background: rgba(255, 90, 90, 0.22); color: #ffd9d9; }
 
-  .shell { flex: 1; display: flex; min-height: 0; }
-
-  .side {
-    width: 76px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 6px;
-    padding: 18px 0; border-right: 1px solid var(--panel-line); background: rgba(6, 12, 20, 0.35);
+  /* ---- three-column stage ---- */
+  /* Sized for the real window (1000x640, min 900). The columns have to fit
+     inside that with the 300px menu still centred, so they are 250 rather
+     than the 300 a wider mockup would suggest. */
+  .stage {
+    flex: 1; min-height: 0;
+    display: grid;
+    grid-template-columns: 250px minmax(0, 1fr) 250px;
+    gap: 18px;
+    padding: 2px 20px 12px;
+    align-items: center;
   }
-  .brandmark { width: 40px; height: 40px; margin-bottom: 14px; filter: drop-shadow(0 0 10px rgba(111, 214, 255, 0.45)); }
-  .nav { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 12px; color: var(--steel); cursor: pointer; transition: background 0.18s, color 0.18s; }
-  .nav svg { width: 20px; height: 20px; }
-  .nav:hover { color: var(--frost); background: rgba(255,255,255,0.05); }
-  .nav.active { color: var(--ice); background: rgba(111, 214, 255, 0.12); box-shadow: inset 2px 0 0 var(--ice); }
-  .side-foot { margin-top: auto; font-family: var(--display); font-size: 11px; letter-spacing: 0.12em; color: var(--steel-dim); }
 
-  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--panel-line);
+    border-radius: 14px;
+    padding: 16px 18px;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 18px 50px -24px rgba(0,0,0,0.9), 0 0 0 1px rgba(255,255,255,0.03) inset;
+  }
+  .card h3 {
+    margin: 0 0 14px;
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--display); font-weight: 600; font-size: 11px;
+    letter-spacing: 0.22em; text-transform: uppercase; color: var(--ice);
+  }
+  .card h3::after { content: ""; flex: 1; height: 1px; background: var(--panel-line); }
 
-  .topbar { height: 58px; flex: none; display: flex; align-items: center; justify-content: flex-end; padding: 0 20px; }
-  .account { display: flex; align-items: center; gap: 10px; padding: 6px 12px 6px 6px; border-radius: 999px; background: var(--panel); border: 1px solid var(--panel-line); cursor: pointer; transition: border-color 0.18s; }
-  .account:hover { border-color: rgba(111,214,255,0.35); }
+  /* ---- centre ---- */
+  .hero { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-width: 0; }
+  .crest { width: 92px; height: 92px; filter: drop-shadow(0 0 26px rgba(111, 214, 255, 0.55)); }
+
+  .wordmark {
+    font-family: var(--display); font-weight: 700;
+    font-size: clamp(34px, 4.6vw, 52px); line-height: 0.95;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    margin: 6px 0 0;
+    color: transparent;
+    background: linear-gradient(180deg, #ffffff, var(--ice-bright) 40%, var(--ice) 70%, var(--ice-deep));
+    -webkit-background-clip: text; background-clip: text;
+    filter: drop-shadow(0 3px 22px rgba(111, 214, 255, 0.4));
+  }
+  .tagline {
+    margin: 8px 0 0; font-family: var(--display);
+    font-size: 13px; letter-spacing: 0.32em; text-transform: uppercase; color: var(--steel);
+  }
+  .rule { display: flex; align-items: center; gap: 10px; width: 240px; margin: 14px 0 18px; color: var(--ice); opacity: 0.5; }
+  .rule::before, .rule::after { content: ""; flex: 1; height: 1px; background: currentColor; }
+
+  .menu { display: flex; flex-direction: column; gap: 10px; width: 300px; max-width: 100%; }
+
+  .btn {
+    position: relative; overflow: hidden;
+    display: flex; align-items: center; justify-content: center; gap: 12px;
+    height: 50px; width: 100%;
+    border: 1px solid var(--panel-line); border-radius: 10px;
+    background: rgba(10, 28, 46, 0.55);
+    color: var(--frost); cursor: pointer;
+    font-family: var(--display); font-weight: 600; font-size: 17px;
+    letter-spacing: 0.18em; text-transform: uppercase;
+    transition: border-color 0.16s, background 0.16s, transform 0.12s;
+  }
+  .btn svg { width: 17px; height: 17px; flex: none; }
+  .btn:hover { border-color: rgba(111,214,255,0.55); background: rgba(18, 48, 74, 0.7); }
+  .btn:active { transform: translateY(1px); }
+  .btn:focus-visible { outline: 2px solid var(--ice-bright); outline-offset: 2px; }
+
+  .play {
+    height: 58px; font-size: 21px; color: #04121a; border: none;
+    background: linear-gradient(160deg, var(--ice-bright), var(--ice) 60%, #4fb6e6);
+    box-shadow: 0 16px 44px -14px rgba(111, 214, 255, 0.7), 0 0 0 1px rgba(255,255,255,0.28) inset;
+  }
+  .play:hover { background: linear-gradient(160deg, #c6f2ff, var(--ice-bright) 60%, #5fc4f0); border: none; }
+  .play::after {
+    content: ""; position: absolute; top: 0; left: -60%; width: 45%; height: 100%;
+    background: linear-gradient(100deg, transparent, rgba(255,255,255,0.55), transparent);
+    transform: skewX(-18deg); transition: left 0.5s ease;
+  }
+  .play:hover::after { left: 130%; }
+
+  .status { margin-top: 16px; display: flex; align-items: center; gap: 9px; font-size: 12px; letter-spacing: 0.04em; color: var(--steel); }
+  .status .rdot { width: 8px; height: 8px; border-radius: 50%; background: var(--ice); box-shadow: 0 0 10px var(--ice); flex: none; }
+
+  /* ---- news ---- */
+  .changes { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 11px; }
+  .changes li { display: flex; gap: 9px; align-items: flex-start; font-size: 13px; line-height: 1.3; }
+  .tick { color: var(--ice); flex: none; margin-top: 2px; font-size: 11px; }
+  .changes .sub2 { display: block; color: var(--steel); font-size: 11.5px; margin-top: 1px; }
+
+  /* ---- right column ---- */
+  .srv { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+  .srv-row { display: flex; align-items: center; gap: 9px; font-size: 13px; }
+  .srv-row .live { width: 7px; height: 7px; border-radius: 50%; background: var(--good); box-shadow: 0 0 8px var(--good); flex: none; }
+  .srv-row .nm { color: var(--ice-bright); font-weight: 600; }
+  .srv-row .ip { margin-left: auto; font-size: 11px; color: var(--steel-dim); letter-spacing: 0.03em; }
+
+  .stats { display: flex; flex-direction: column; gap: 9px; }
+  .stat { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: 12px; }
+  .stat .k { font-family: var(--display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--steel); }
+  .stat .v { font-family: var(--display); font-weight: 600; font-size: 14px; color: var(--ice-bright); font-variant-numeric: tabular-nums; }
+  .stat .v.ok { color: var(--good); }
+
+  .ram { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--panel-line); }
+  .ramhead { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 9px; }
+  .ramhead .k { font-family: var(--display); letter-spacing: 0.14em; text-transform: uppercase; font-size: 12px; color: var(--steel); }
+  .ramval { font-size: 11px; color: var(--ice-bright); letter-spacing: 0.04em; font-variant-numeric: tabular-nums; }
+  .ram input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 3px; border-radius: 999px; background: rgba(150, 200, 255, 0.25); outline: none; cursor: pointer; }
+  .ram input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 12px; height: 12px; border-radius: 50%; background: var(--ice); box-shadow: 0 0 8px var(--ice); cursor: pointer; }
+  .ram input[type=range]:focus-visible { outline: 2px solid var(--ice-bright); outline-offset: 4px; }
+
+  /* Kept for the version script, which writes the client build here. */
+  .ver { display: none; }
+
+  /* ---- account + footer ---- */
+  .account {
+    position: absolute; top: 50px; right: 26px; z-index: 3;
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 12px 6px 6px; border-radius: 999px;
+    background: var(--panel); border: 1px solid var(--panel-line);
+    cursor: pointer; transition: border-color 0.18s; backdrop-filter: blur(10px);
+  }
+  .account:hover { border-color: rgba(111,214,255,0.45); }
   .account.signin { padding: 8px 15px; gap: 9px; }
   .account.signin svg { flex: none; border-radius: 2px; }
   .account.signin .name { font-weight: 600; }
@@ -94,121 +229,135 @@
   .account .plat { font-size: 10px; letter-spacing: 0.05em; color: var(--steel); }
   .dot-good { width: 7px; height: 7px; border-radius: 50%; background: var(--good); box-shadow: 0 0 8px var(--good); }
 
-  .hero { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; padding: 8px 40px 20px; }
-  .wordmark { font-family: var(--display); font-weight: 600; font-size: clamp(44px, 8vw, 78px); line-height: 0.9; letter-spacing: 0.02em; text-transform: uppercase; margin: 0; text-wrap: balance; }
-  .wordmark .ice { color: transparent; background: linear-gradient(180deg, var(--ice-bright), var(--ice) 55%, var(--ice-deep)); -webkit-background-clip: text; background-clip: text; filter: drop-shadow(0 2px 18px rgba(111, 214, 255, 0.35)); }
-  .tagline { margin: 10px 0 0; font-size: 15px; letter-spacing: 0.02em; color: var(--steel); max-width: 40ch; }
-  .tagline b { color: var(--frost); font-weight: 600; }
-
-  .controls { margin-top: 30px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
-  .play { position: relative; overflow: hidden; display: inline-flex; align-items: center; gap: 14px; padding: 0 40px 0 26px; height: 60px; border: none; border-radius: 14px; cursor: pointer; font-family: var(--display); font-weight: 700; font-size: 24px; letter-spacing: 0.12em; text-transform: uppercase; color: #04121a; background: linear-gradient(160deg, var(--ice-bright), var(--ice) 60%, #4fb6e6); box-shadow: 0 14px 40px -12px rgba(111, 214, 255, 0.6), 0 0 0 1px rgba(255,255,255,0.25) inset; transition: transform 0.16s ease, box-shadow 0.16s ease; }
-  .play:hover { transform: translateY(-2px); box-shadow: 0 20px 52px -12px rgba(111, 214, 255, 0.75), 0 0 0 1px rgba(255,255,255,0.35) inset; }
-  .play:active { transform: translateY(0); }
-  .play:focus-visible { outline: 3px solid var(--ice-bright); outline-offset: 3px; }
-  .play .tri { width: 0; height: 0; border-left: 20px solid #04121a; border-top: 12px solid transparent; border-bottom: 12px solid transparent; }
-  .play .sub { font-family: var(--body); font-weight: 600; font-size: 11px; letter-spacing: 0.08em; opacity: 0.7; text-transform: none; }
-  .play::after { content: ""; position: absolute; top: 0; left: -60%; width: 45%; height: 100%; background: linear-gradient(100deg, transparent, rgba(255,255,255,0.55), transparent); transform: skewX(-18deg); transition: left 0.5s ease; }
-  .play:hover::after { left: 130%; }
-
-  .ver { display: inline-flex; align-items: center; gap: 10px; height: 44px; padding: 0 16px; border-radius: 12px; background: var(--panel); border: 1px solid var(--panel-line); cursor: pointer; transition: border-color 0.18s; }
-  .ver:hover { border-color: rgba(111,214,255,0.35); }
-  .ver .vlabel { font-family: var(--display); font-weight: 600; letter-spacing: 0.06em; font-size: 15px; }
-  .ver .vsub { font-size: 11px; color: var(--steel); }
-  .ver .chev { color: var(--steel); }
-
-  .ram { display: flex; flex-direction: column; justify-content: center; gap: 6px; height: 44px; padding: 0 16px; border-radius: 12px; background: var(--panel); border: 1px solid var(--panel-line); min-width: 150px; }
-  .ramhead { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-  .ramval { font-size: 11px; color: var(--steel); letter-spacing: 0.04em; }
-  .ram input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 3px; border-radius: 999px; background: rgba(150, 200, 255, 0.22); outline: none; cursor: pointer; }
-  .ram input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 11px; height: 11px; border-radius: 50%; background: var(--ice); box-shadow: 0 0 8px var(--ice); cursor: pointer; }
-  .status { margin-top: 22px; display: flex; align-items: center; gap: 10px; font-size: 12px; letter-spacing: 0.04em; color: var(--steel); }
-  .status .rdot { width: 8px; height: 8px; border-radius: 50%; background: var(--ice); box-shadow: 0 0 10px var(--ice); }
-
-  .news { flex: none; margin: 0 20px 20px; padding: 16px 20px; border-radius: 14px; background: var(--panel); border: 1px solid var(--panel-line); }
-  .news h3 { margin: 0 0 12px; font-family: var(--display); font-weight: 600; font-size: 12px; letter-spacing: 0.24em; text-transform: uppercase; color: var(--ice); }
-  .changes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 26px; margin: 0; padding: 0; list-style: none; }
-  .changes li { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; color: var(--frost); }
-  .changes li span.sub2 { color: var(--steel); font-size: 12px; }
-  .tick { color: var(--ice); flex: none; margin-top: 1px; }
+  .footer {
+    flex: none; height: 34px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 28px 6px;
+    font-size: 12px; color: var(--steel-dim);
+  }
+  .footer .side-foot { letter-spacing: 0.1em; font-family: var(--display); }
+  .footer .tag { letter-spacing: 0.16em; font-family: var(--display); text-transform: uppercase; }
 
   @media (prefers-reduced-motion: reduce) {
-    .aura { animation: none; }
+    .aurora, .snow { animation: none; }
     .play::after { transition: none; }
-    .play:hover { transform: none; }
   }
-  @media (max-width: 760px) { .changes { grid-template-columns: 1fr; } .changes .second { display: none; } }
+  /* Only collapse below the window's own minimum, so the cards are visible in
+     normal use -- the old 1080px breakpoint was wider than the window itself
+     and hid them permanently. */
+  @media (max-width: 860px) {
+    .stage { grid-template-columns: 1fr; justify-items: center; }
+    .stage .card { display: none; }
+  }
 </style>
 </head>
 <body>
-<div class="aura"></div>
+<div class="sky"></div>
+<div class="aurora"></div>
+<div class="snow"></div>
+<div class="snow slow"></div>
 
 <div class="app">
   <div class="titlebar">
-    <span class="tb-title">Ice Client</span>
+    <div class="tb-left">
+      <svg class="tb-mark" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <path d="M24 3 L39.6 12.5 V33.5 L24 43 L8.4 33.5 V12.5 Z" stroke="#6fd6ff" stroke-width="3" fill="rgba(111,214,255,0.12)"/>
+      </svg>
+      <span class="tb-title">Ice Client <span class="tb-ver"></span></span>
+    </div>
     <div class="tb-buttons">
       <button class="tb-btn" id="min" title="Minimize">&#8211;</button>
       <button class="tb-btn close" id="close" title="Close">&#10005;</button>
     </div>
   </div>
 
-  <div class="shell">
-    <aside class="side">
-      <svg class="brandmark" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <div class="account signin" id="account" title="Account"></div>
+
+  <div class="stage">
+
+    <!-- news ------------------------------------------------------------ -->
+    <section class="card">
+      <h3>Latest News</h3>
+      <ul class="changes">
+        <li><span class="tick">&#10022;</span><div>Patch Crumbs rebuilt<span class="sub2">Correct Y, and every breach shown at once</span></div></li>
+        <li><span class="tick">&#10022;</span><div>Printer fixes<span class="sub2">No more stray blocks while auto-ticking</span></div></li>
+        <li><span class="tick">&#10022;</span><div>Menu sections<span class="sub2">98 modules, grouped and collapsible</span></div></li>
+        <li><span class="tick">&#10022;</span><div>Schematic page<span class="sub2">Move, rotate and print on one screen</span></div></li>
+      </ul>
+    </section>
+
+    <!-- centre ----------------------------------------------------------- -->
+    <div class="hero">
+      <svg class="crest" viewBox="0 0 120 120" fill="none" aria-hidden="true">
         <defs>
-          <linearGradient id="ig" x1="24" y1="2" x2="24" y2="46" gradientUnits="userSpaceOnUse">
-            <stop stop-color="#a9e9ff"/><stop offset="1" stop-color="#2f7fa6"/>
+          <linearGradient id="cg" x1="60" y1="6" x2="60" y2="114" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#ffffff"/><stop offset="0.45" stop-color="#a9e9ff"/><stop offset="1" stop-color="#2f7fa6"/>
           </linearGradient>
         </defs>
-        <path d="M24 3 L39.6 12.5 V33.5 L24 43 L8.4 33.5 V12.5 Z" stroke="url(#ig)" stroke-width="2" fill="rgba(111,214,255,0.08)"/>
-        <path d="M24 3 V43 M8.4 12.5 L39.6 33.5 M39.6 12.5 L8.4 33.5" stroke="url(#ig)" stroke-width="1" opacity="0.55"/>
+        <path d="M60 8 L102 32 V88 L60 112 L18 88 V32 Z" stroke="url(#cg)" stroke-width="2" fill="rgba(111,214,255,0.06)"/>
+        <path d="M60 22 L78 46 L60 98 L42 46 Z" fill="url(#cg)" opacity="0.92"/>
+        <path d="M60 22 V98 M42 46 L78 46" stroke="#04121a" stroke-width="1.4" opacity="0.5"/>
+        <path d="M30 52 L44 60 L30 70 Z M90 52 L76 60 L90 70 Z" fill="url(#cg)" opacity="0.6"/>
       </svg>
-      <div class="nav active" title="Play"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></div>
-      <div class="nav" title="Cosmetics"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3 6 6 .5-4.5 4 1.5 6-6-3.2L6 18.5 7.5 12.5 3 8.5 9 8z"/></svg></div>
-      <div class="nav" title="Mods"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></div>
-      <div class="nav" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg></div>
-      <div class="side-foot">v0.1.0</div>
-    </aside>
 
-    <div class="main">
-      <div class="topbar">
-        <div class="account signin" id="account" title="Account"></div>
+      <h1 class="wordmark">Ice Client</h1>
+      <p class="tagline">Cold. Calculated. Deadly.</p>
+      <div class="rule">&#10052;</div>
+
+      <div class="menu">
+        <button class="btn play">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          Play
+        </button>
+        <button class="btn" id="servers">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="7" rx="1"/><rect x="3" y="13" width="18" height="7" rx="1"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>
+          Servers
+        </button>
+        <button class="btn" id="settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg>
+          Settings
+        </button>
+        <button class="btn" id="quit">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4M16 17l5-5-5-5M21 12H9"/></svg>
+          Quit
+        </button>
       </div>
 
-      <div class="hero">
-        <h1 class="wordmark"><span class="ice">Ice</span> Client</h1>
-        <p class="tagline">Factions tooling built for the wall — <b>cannon-ready printing</b>, raid awareness, and a HUD you actually want on screen.</p>
-
-        <div class="controls">
-          <button class="play">
-            <span class="tri"></span>
-            <span>Play<br><span class="sub">1.8.9 &middot; Forge</span></span>
-          </button>
-          <div class="ver">
-            <div><div class="vlabel">1.8.9</div><div class="vsub">Forge &middot; Ice v0.1.0</div></div>
-            <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
-          </div>
-          <div class="ram">
-            <div class="ramhead">
-              <span class="vlabel">RAM</span>
-              <span class="ramval" id="ramval">&mdash;</span>
-            </div>
-            <input type="range" id="ram" min="2" max="8" step="1" value="4">
-          </div>
-        </div>
-
-        <div class="status"><span class="rdot"></span> Ready to launch &middot; Java 8 detected</div>
-      </div>
-
-      <div class="news">
-        <h3>What's new &middot; v0.1.0</h3>
-        <ul class="changes">
-          <li><span class="tick">&#10022;</span><div>PatchCrumbs full 3D block <span class="sub2">+ 4-way guide cross</span></div></li>
-          <li><span class="tick">&#10022;</span><div>Batched TNT boxes <span class="sub2">no FPS drop on volleys</span></div></li>
-          <li class="second"><span class="tick">&#10022;</span><div>HUD editor <span class="sub2">resize &amp; recolor any element</span></div></li>
-          <li class="second"><span class="tick">&#10022;</span><div>Card-grid menu <span class="sub2">left-click toggle, right-click settings</span></div></li>
-        </ul>
-      </div>
+      <div class="status"><span class="rdot"></span> Ready to launch</div>
     </div>
+
+    <!-- servers + stats --------------------------------------------------- -->
+    <section class="card">
+      <h3>Servers</h3>
+      <div class="srv">
+        <div class="srv-row"><span class="live"></span><span class="nm">Minecadia</span><span class="ip">play.minecadia.com</span></div>
+      </div>
+
+      <h3>Your Build</h3>
+      <div class="stats">
+        <div class="stat"><span class="k">Client</span><span class="v" id="st-client">&mdash;</span></div>
+        <div class="stat"><span class="k">Launcher</span><span class="v" id="st-launcher">&mdash;</span></div>
+        <div class="stat"><span class="k">Minecraft</span><span class="v">1.8.9</span></div>
+        <div class="stat"><span class="k">Java 8</span><span class="v ok" id="st-java">&mdash;</span></div>
+      </div>
+
+      <div class="ram">
+        <div class="ramhead">
+          <span class="k">Memory</span>
+          <span class="ramval" id="ramval">&mdash;</span>
+        </div>
+        <input type="range" id="ram" min="2" max="8" step="1" value="4">
+      </div>
+
+      <!-- The version script writes the client build here; kept for that. -->
+      <div class="ver"><div class="vsub"></div></div>
+    </section>
+
+  </div>
+
+  <div class="footer">
+    <span class="side-foot">v1.0.0</span>
+    <span class="tag">Built for factions</span>
   </div>
 </div>
 
@@ -307,6 +456,28 @@
     setStatus(msg);
     if (/^Starting Minecraft/.test(msg)) idle(); // game window is opening; re-arm Play
   });
+
+  // ---- menu buttons ----
+  // Servers and Settings point at the card that already holds that information
+  // rather than opening panels that repeat it. Quit closes the launcher.
+  document.getElementById('quit').addEventListener('click', () => window.win.close());
+
+  function flash(el) {
+    if (!el) return;
+    el.style.transition = 'border-color 0.2s';
+    el.style.borderColor = 'rgba(111,214,255,0.85)';
+    setTimeout(() => { el.style.borderColor = ''; }, 900);
+  }
+
+  document.getElementById('servers').addEventListener('click', () => {
+    flash(document.querySelectorAll('.card')[1]);
+    setStatus('Server list is on the right — pick it in-game under Multiplayer.');
+  });
+
+  document.getElementById('settings').addEventListener('click', () => {
+    flash(document.querySelectorAll('.card')[1]);
+    document.getElementById('ram').focus();
+  });
 </script>
 <script>
   // Replace the hardcoded version labels with the real ones.
@@ -317,7 +488,27 @@
       const clientEl = document.querySelector('.ver .vsub');
       if (launcherEl) launcherEl.textContent = 'Launcher v' + v.launcher;
       if (clientEl) clientEl.textContent = 'Forge · Ice v' + v.client;
+
+      // Stats card + titlebar read from the same source, so nothing here can
+      // drift out of date the way the hardcoded v0.1.0 labels did.
+      const c = document.getElementById('st-client');
+      const l = document.getElementById('st-launcher');
+      const t = document.querySelector('.tb-ver');
+      if (c) c.textContent = 'v' + v.client;
+      if (l) l.textContent = 'v' + v.launcher;
+      if (t) t.textContent = 'v' + v.launcher;
     } catch (e) { /* leave the static text if anything goes wrong */ }
+  })();
+
+  // Java presence is a real check in the main process; show what it found.
+  (async () => {
+    const el = document.getElementById('st-java');
+    if (!el) return;
+    try {
+      const s = await window.settings.get();
+      if (s && s.javaFound === true) { el.textContent = 'Found'; }
+      else { el.textContent = 'Missing'; el.classList.remove('ok'); }
+    } catch (e) { el.textContent = '—'; }
   })();
 </script>
 </body>

@@ -1,6 +1,6 @@
 {
   "name": "ice-launcher",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Ice Client Launcher",
   "main": "main.js",
   "author": "Ice Client",
@@ -11,9 +11,9 @@
     "dist": "electron-builder"
   },
   "dependencies": {
-    "msmc": "^4.1.0",
+    "electron-updater": "^6.3.9",
     "minecraft-launcher-core": "^3.18.2",
-    "electron-updater": "^6.3.9"
+    "msmc": "^4.1.0"
   },
   "devDependencies": {
     "electron": "^32.0.0",
@@ -31,10 +31,16 @@
       "!run.bat"
     ],
     "extraResources": [
-      { "from": "game", "to": "game" }
+      {
+        "from": "game",
+        "to": "game"
+      }
     ],
     "publish": [
-      { "provider": "generic", "url": "http://5.175.213.69/download/" }
+      {
+        "provider": "generic",
+        "url": "http://5.175.213.69/download/"
+      }
     ],
     "win": {
       "target": "nsis"
