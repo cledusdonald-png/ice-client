@@ -55,12 +55,25 @@ public final class CapeRenderer {
          return;
       }
 
-      Cosmetic worn = capeFor(p);
-      if(worn == null || worn.getTexture() == null) {
-         return;
+      Minecraft mc = Minecraft.getMinecraft();
+
+      // A custom cape is yours only and takes precedence -- picking one clears
+      // the catalogue slot, so both can never be set at once.
+      net.minecraft.util.ResourceLocation tex = null;
+
+      if(p == mc.thePlayer && CosmeticManager.getCustomCape() != null) {
+         tex = com.iceclient.cosmetic.CustomCapes.textureFor(CosmeticManager.getCustomCape());
       }
 
-      Minecraft mc = Minecraft.getMinecraft();
+      if(tex == null) {
+         Cosmetic worn = capeFor(p);
+         if(worn == null || worn.getTexture() == null) {
+            return;
+         }
+
+         tex = worn.getTexture();
+      }
+
       float pt = event.partialRenderTick;
 
       GlStateManager.pushMatrix();
@@ -108,7 +121,7 @@ public final class CapeRenderer {
       GlStateManager.rotate(180.0F, 0.0F, 1.0F, 0.0F);
 
       GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
-      mc.getTextureManager().bindTexture(worn.getTexture());
+      mc.getTextureManager().bindTexture(tex);
       this.cape.render(0.0625F);
 
       GlStateManager.disableRescaleNormal();

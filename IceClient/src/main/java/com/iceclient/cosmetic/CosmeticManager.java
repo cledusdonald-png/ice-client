@@ -33,6 +33,28 @@ public final class CosmeticManager {
    /** Spendable balance. Earned in-client; see the note on the shop screen. */
    private static int balance = 0;
 
+   /**
+    * A custom cape from the user's own folder, or null.
+    *
+    * <p>Held separately from {@link #equipped} because it is not a catalogue id
+    * -- it is a filename on this machine, means nothing to anyone else, and must
+    * not be written into the equipped map where a later load would try to
+    * resolve it against the registry and drop it.
+    */
+   private static String customCape;
+
+   public static String getCustomCape() {
+      return customCape;
+   }
+
+   /** Selecting a custom cape clears any catalogue cape, since only one renders. */
+   public static void setCustomCape(String name) {
+      customCape = name;
+      if(name != null) {
+         equipped.remove(CosmeticType.CAPE);
+      }
+   }
+
    private CosmeticManager() {
    }
 
@@ -105,6 +127,10 @@ public final class CosmeticManager {
       Cosmetic c = CosmeticRegistry.byId(id);
       if(c == null || !owns(id)) {
          return false;
+      }
+
+      if(c.getType() == CosmeticType.CAPE) {
+         customCape = null;
       }
 
       equipped.put(c.getType(), id);

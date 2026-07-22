@@ -20,19 +20,34 @@ public final class Cosmetic {
    private final int price;
    private final String description;
    private final ResourceLocation texture;
+   private final int color;
 
    public Cosmetic(String id, String name, CosmeticType type, Rarity rarity,
                    int price, String description, String texturePath) {
+      this(id, name, type, rarity, price, description, texturePath, 0xFFFFFF);
+   }
+
+   /**
+    * @param color tint for cosmetics drawn as geometry rather than textured --
+    *              hats, wings, pets and trails are small enough on screen that a
+    *              clean silhouette in one colour reads better than a texture a
+    *              few pixels across.
+    */
+   public Cosmetic(String id, String name, CosmeticType type, Rarity rarity,
+                   int price, String description, String texturePath, int color) {
       this.id = id;
       this.name = name;
       this.type = type;
       this.rarity = rarity;
       this.price = price;
       this.description = description;
+      this.color = color;
       this.texture = texturePath == null
             ? null
             : new ResourceLocation("iceclient", "textures/cosmetics/" + texturePath);
    }
+
+   public int getColor() { return this.color; }
 
    public String getId() { return this.id; }
    public String getName() { return this.name; }

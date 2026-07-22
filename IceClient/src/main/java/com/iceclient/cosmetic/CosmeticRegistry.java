@@ -43,6 +43,48 @@ public final class CosmeticRegistry {
             Cosmetic.Rarity.LEGENDARY, 0,
             "Given, not bought. Early Ice Client testers.", "cape_founder.png"));
 
+      // ---- hats --------------------------------------------------------
+      // Colour-driven rather than textured: at the size a hat renders, a solid
+      // shape with a good silhouette reads better than a 4-pixel texture.
+      add(new Cosmetic("hat_crown", "Frost Crown", CosmeticType.HAT,
+            Cosmetic.Rarity.EPIC, 1200,
+            "Five points of clear ice.", null, 0xA8F2FF));
+
+      add(new Cosmetic("hat_beanie", "Beanie", CosmeticType.HAT,
+            Cosmetic.Rarity.COMMON, 200,
+            "For the cold. Practical, for once.", null, 0x4A9BC4));
+
+      add(new Cosmetic("hat_halo", "Halo", CosmeticType.HAT,
+            Cosmetic.Rarity.RARE, 800,
+            "Floats above. Unearned, probably.", null, 0xFFC947));
+
+      // ---- wings -------------------------------------------------------
+      add(new Cosmetic("wings_frost", "Frost Wings", CosmeticType.WINGS,
+            Cosmetic.Rarity.EPIC, 1800,
+            "Sheets of ice that catch the light.", null, 0xBFE8FA));
+
+      add(new Cosmetic("wings_shadow", "Shadow Wings", CosmeticType.WINGS,
+            Cosmetic.Rarity.LEGENDARY, 3000,
+            "Darker than the wall you're standing in.", null, 0x2A1E3D));
+
+      // ---- pets --------------------------------------------------------
+      add(new Cosmetic("pet_cube", "Ice Shard", CosmeticType.PET,
+            Cosmetic.Rarity.RARE, 900,
+            "A shard that orbits your shoulder.", null, 0x7FC9E8));
+
+      add(new Cosmetic("pet_ember", "Ember", CosmeticType.PET,
+            Cosmetic.Rarity.EPIC, 1600,
+            "Warm, for once. Bobs along behind you.", null, 0xFF8A3D));
+
+      // ---- trails ------------------------------------------------------
+      add(new Cosmetic("trail_frost", "Frost Trail", CosmeticType.TRAIL,
+            Cosmetic.Rarity.COMMON, 300,
+            "Cold air where you've been.", null, 0xA8F2FF));
+
+      add(new Cosmetic("trail_aurora", "Aurora Trail", CosmeticType.TRAIL,
+            Cosmetic.Rarity.EPIC, 1400,
+            "Green and blue, fading behind you.", null, 0x5AFFD2));
+
       // ---- emotes ------------------------------------------------------
       // Registered so the wardrobe and shop can show what is coming, but there
       // is no animation behind them yet -- see CosmeticManager#canPlayEmote.

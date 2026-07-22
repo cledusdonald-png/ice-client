@@ -38,7 +38,7 @@ public class IceClient {
     * {@link #displayVersion()}, so the only edit when releasing is this line
     * and {@code mod_version} in gradle.properties.
     */
-   public static final String VERSION = "1.3.0";
+   public static final String VERSION = "1.6.0";
 
    public static final Logger LOGGER = LogManager.getLogger("Ice Client");
 
@@ -70,6 +70,16 @@ public class IceClient {
 
       return resolvedVersion;
    }
+   /**
+    * Publishes worn cosmetics to the Ice server and reads back everyone else's.
+    *
+    * <p>Held here rather than created inline so the wardrobe can poke it the
+    * moment you equip something, instead of your friends waiting out the
+    * interval to see the change.
+    */
+   public static final com.iceclient.cosmetic.CosmeticSync COSMETIC_SYNC =
+         new com.iceclient.cosmetic.CosmeticSync();
+
    private static final int GUI_KEY = 54;          // Right Shift
    private static final int HUD_EDITOR_KEY = 157;  // Right Ctrl
    private static final int COSMETICS_KEY = 184;   // Right Alt
@@ -85,8 +95,11 @@ public class IceClient {
       MinecraftForge.EVENT_BUS.register(this);
       MinecraftForge.EVENT_BUS.register(new MainMenuHandler());
       MinecraftForge.EVENT_BUS.register(new com.iceclient.cosmetic.render.CapeRenderer());
+      MinecraftForge.EVENT_BUS.register(new com.iceclient.cosmetic.render.AccessoryRenderer());
+      MinecraftForge.EVENT_BUS.register(COSMETIC_SYNC);
       ClientCommandHandler.instance.registerCommand(new SchemCommand());
       com.iceclient.command.MacroCommand.register();
+      com.iceclient.command.IceCommand.register();
       ConfigManager.load();
       Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
          public void run() {

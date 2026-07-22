@@ -12,6 +12,8 @@ public enum CosmeticType {
    CAPE("Cape", "Worn on the back"),
    HAT("Hat", "Sits above the head"),
    WINGS("Wings", "Worn on the back, above the cape"),
+   PET("Pet", "Follows you around"),
+   TRAIL("Trail", "Left behind as you move"),
    /**
     * Emotes are a slot in the same sense -- one bound at a time -- but they are
     * played on a keypress rather than worn, and they animate the player model
