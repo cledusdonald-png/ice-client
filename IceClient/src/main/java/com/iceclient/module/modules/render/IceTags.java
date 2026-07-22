@@ -50,9 +50,12 @@ public class IceTags extends Module {
 
     private final BooleanSetting ownTag = addBool("My nametag in 3rd person", true);
     private final BooleanSetting badge = addBool("Ice badge on users", true);
+    private final BooleanSetting tabPanel = addBool("Ice list on Tab", true);
 
-    /** Lower-cased names of Ice Client users seen on this server. */
+    /** Lower-cased names of Ice Client users seen on this server, for matching. */
     private final Set<String> iceUsers = Collections.newSetFromMap(new ConcurrentHashMap<String, Boolean>());
+    /** Same users, original case, for the Tab panel. Kept in sync with iceUsers. */
+    private volatile java.util.List<String> iceUserDisplay = new java.util.ArrayList<String>();
 
     private long nextBeat = 0L;
     private volatile boolean beating = false;
@@ -64,7 +67,67 @@ public class IceTags extends Module {
     @Override
     protected void onDisable() {
         iceUsers.clear();
+        iceUserDisplay = new java.util.ArrayList<String>();
         nextBeat = 0L;
+    }
+
+    // ---------- Tab panel ----------
+
+    /**
+     * A small roster of Ice users on this server, shown alongside the vanilla
+     * player list while Tab is held.
+     *
+     * <p>Drawn on the HUD rather than in the world so it reads like part of the
+     * player list, and only while that list is up -- the same key, so it feels
+     * like one screen. The names come straight from the presence set, which is
+     * the same source the badges use, so the panel and the tags always agree.
+     */
+    @SubscribeEvent
+    public void onRenderOverlay(net.minecraftforge.client.event.RenderGameOverlayEvent.Post event) {
+        if (event.type != net.minecraftforge.client.event.RenderGameOverlayEvent.ElementType.ALL) return;
+        if (!isEnabled() || !tabPanel.get() || mc.thePlayer == null) return;
+        // Only while the player-list key is held, and not while a screen is open.
+        if (mc.currentScreen != null) return;
+        if (!mc.gameSettings.keyBindPlayerList.isKeyDown()) return;
+
+        java.util.List<String> users = iceUserDisplay;
+
+        FontRenderer fr = mc.fontRendererObj;
+        net.minecraft.client.gui.ScaledResolution sr =
+              new net.minecraft.client.gui.ScaledResolution(mc);
+        int screenW = sr.getScaledWidth();
+
+        String header = "ICE §7" + users.size();
+        int titleW = fr.getStringWidth("ICE CLIENT");
+        int rowH = 10;
+
+        int w = titleW + 20;
+        for (String u : users) w = Math.max(w, fr.getStringWidth(u) + 24);
+        w = Math.min(w, 120);
+
+        int h = 18 + Math.max(1, users.size()) * rowH + 6;
+        int x = screenW - w - 6;
+        int y = 34;
+
+        // Panel body + accent bar.
+        net.minecraft.client.gui.Gui.drawRect(x, y, x + w, y + h, 0xC00A1420);
+        net.minecraft.client.gui.Gui.drawRect(x, y, x + w, y + 1, 0xFF6FD6FF);
+
+        fr.drawStringWithShadow("ICE §fCLIENT", x + 6, y + 6, ICE);
+        fr.drawStringWithShadow("§7" + users.size(), x + w - fr.getStringWidth(String.valueOf(users.size())) - 6, y + 6, 0xFFFFFF);
+
+        int ry = y + 18;
+        if (users.isEmpty()) {
+            fr.drawStringWithShadow("§8only you", x + 6, ry, 0xFF7D8DA0);
+        } else {
+            for (String u : users) {
+                // A small dot, then the name -- online indicator like the launcher.
+                net.minecraft.client.gui.Gui.drawRect(x + 6, ry + 2, x + 9, ry + 5, 0xFF57E0A0);
+                String name = u.length() > 14 ? u.substring(0, 13) + "…" : u;
+                fr.drawStringWithShadow(name, x + 13, ry, 0xFFEAF4FF);
+                ry += rowH;
+            }
+        }
     }
 
     // ---------- presence ----------
@@ -120,12 +183,19 @@ public class IceTags extends Module {
             r.close();
 
             Set<String> found = new HashSet<String>();
+            java.util.List<String> display = new java.util.ArrayList<String>();
             Matcher m = Pattern.compile("\"([A-Za-z0-9_]{3,16})\"").matcher(resp.toString());
-            while (m.find()) found.add(m.group(1).toLowerCase());
-            found.remove("users");
+            while (m.find()) {
+                String raw = m.group(1);
+                if (raw.equalsIgnoreCase("users")) continue;
+                if (found.add(raw.toLowerCase())) display.add(raw);
+            }
+
+            java.util.Collections.sort(display, String.CASE_INSENSITIVE_ORDER);
 
             iceUsers.clear();
             iceUsers.addAll(found);
+            iceUserDisplay = display;
         } catch (Exception ignored) {
             // offline / server down -- badges simply don't show
         } finally {

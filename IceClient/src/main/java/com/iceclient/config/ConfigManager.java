@@ -5,6 +5,8 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.iceclient.cosmetic.CosmeticManager;
+import com.iceclient.cosmetic.CosmeticType;
 import com.iceclient.module.HudModule;
 import com.iceclient.module.Module;
 import com.iceclient.module.ModuleManager;
@@ -98,6 +100,7 @@ public final class ConfigManager {
 
          JsonObject root = new JsonObject();
          root.add("modules", modules);
+         root.add("cosmetics", saveCosmetics());
          Writer w = new OutputStreamWriter(new FileOutputStream(configFile()), StandardCharsets.UTF_8);
          Throwable var21 = null;
 
@@ -126,6 +129,68 @@ public final class ConfigManager {
 
    }
 
+   /**
+    * Owned cosmetics, what is worn, and the balance.
+    *
+    * <p>Stored beside the modules rather than in their own file so there is one
+    * config to back up or delete. Unknown ids are dropped on load, so removing a
+    * cosmetic from the registry cannot leave a config that fails to parse.
+    */
+   private static JsonObject saveCosmetics() {
+      JsonObject c = new JsonObject();
+      c.addProperty("balance", Integer.valueOf(CosmeticManager.getBalance()));
+
+      com.google.gson.JsonArray owned = new com.google.gson.JsonArray();
+      for(String id : CosmeticManager.getOwned()) {
+         owned.add(new com.google.gson.JsonPrimitive(id));
+      }
+      c.add("owned", owned);
+
+      JsonObject worn = new JsonObject();
+      for(CosmeticType t : CosmeticType.values()) {
+         String id = CosmeticManager.getEquipped(t);
+         if(id != null) {
+            worn.addProperty(t.name(), id);
+         }
+      }
+      c.add("equipped", worn);
+
+      return c;
+   }
+
+   private static void loadCosmetics(JsonObject root) {
+      if(root == null || !root.has("cosmetics")) {
+         return;
+      }
+
+      try {
+         JsonObject c = root.getAsJsonObject("cosmetics");
+
+         if(c.has("balance")) {
+            CosmeticManager.setBalance(c.get("balance").getAsInt());
+         }
+
+         if(c.has("owned")) {
+            java.util.Set<String> ids = new java.util.HashSet<String>();
+            for(com.google.gson.JsonElement e : c.getAsJsonArray("owned")) {
+               ids.add(e.getAsString());
+            }
+            CosmeticManager.setOwned(ids);
+         }
+
+         if(c.has("equipped")) {
+            JsonObject worn = c.getAsJsonObject("equipped");
+            for(CosmeticType t : CosmeticType.values()) {
+               if(worn.has(t.name())) {
+                  CosmeticManager.setEquipped(t, worn.get(t.name()).getAsString());
+               }
+            }
+         }
+      } catch (Exception e) {
+         // A malformed cosmetics block must not cost someone their module config.
+      }
+   }
+
    public static void load() {
       File file = configFile();
 
@@ -145,6 +210,7 @@ public final class ConfigManager {
                JsonElement parsed = (new JsonParser()).parse(r);
                if(parsed.isJsonObject()) {
                   JsonObject root = parsed.getAsJsonObject();
+                  loadCosmetics(root);
                   if(root.has("modules") && root.get("modules").isJsonObject()) {
                      JsonObject modules = root.getAsJsonObject("modules");
 

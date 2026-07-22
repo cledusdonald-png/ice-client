@@ -38,7 +38,7 @@ public class IceClient {
     * {@link #displayVersion()}, so the only edit when releasing is this line
     * and {@code mod_version} in gradle.properties.
     */
-   public static final String VERSION = "1.1.6";
+   public static final String VERSION = "1.3.0";
 
    public static final Logger LOGGER = LogManager.getLogger("Ice Client");
 
@@ -70,8 +70,9 @@ public class IceClient {
 
       return resolvedVersion;
    }
-   private static final int GUI_KEY = 54;
-   private static final int HUD_EDITOR_KEY = 157;
+   private static final int GUI_KEY = 54;          // Right Shift
+   private static final int HUD_EDITOR_KEY = 157;  // Right Ctrl
+   private static final int COSMETICS_KEY = 184;   // Right Alt
 
    public IceClient() {
    }
@@ -83,6 +84,7 @@ public class IceClient {
       ModuleManager.init();
       MinecraftForge.EVENT_BUS.register(this);
       MinecraftForge.EVENT_BUS.register(new MainMenuHandler());
+      MinecraftForge.EVENT_BUS.register(new com.iceclient.cosmetic.render.CapeRenderer());
       ClientCommandHandler.instance.registerCommand(new SchemCommand());
       com.iceclient.command.MacroCommand.register();
       ConfigManager.load();
@@ -121,10 +123,12 @@ public class IceClient {
       if(Keyboard.getEventKeyState()) {
          Minecraft mc = Minecraft.getMinecraft();
          if(mc.currentScreen == null) {
-            if(Keyboard.getEventKey() == 54) {
+            if(Keyboard.getEventKey() == GUI_KEY) {
                mc.displayGuiScreen(new ClickGuiScreen());
-            } else if(Keyboard.getEventKey() == 157) {
+            } else if(Keyboard.getEventKey() == HUD_EDITOR_KEY) {
                mc.displayGuiScreen(new HudEditorScreen());
+            } else if(Keyboard.getEventKey() == COSMETICS_KEY) {
+               mc.displayGuiScreen(new com.iceclient.gui.CosmeticsScreen());
             }
 
          }
