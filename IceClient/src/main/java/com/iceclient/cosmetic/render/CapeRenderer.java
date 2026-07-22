@@ -35,7 +35,21 @@ public final class CapeRenderer {
    /** Vanilla's model-space offset, from {@code RendererLivingEntity.prepareScale}. */
    private static final float MODEL_Y = -1.5078125F;
 
-   private final ModelRenderer cape;
+   /**
+    * The cape in horizontal slices, so it can bend along its length.
+    *
+    * <p>Vanilla's cape is one rigid box: it swings from the shoulders but stays
+    * board-flat, which is what made ours look like a plank. Splitting it into
+    * slices and rotating each a little further than the one above lets a wave
+    * travel down it, so it ripples while you walk and settles when you stop.
+    */
+   private static final int SLICES = 8;
+   private static final int SLICE_H = 16 / SLICES;
+
+   /** Wider than vanilla's 10 units; the texture is stretched to match. */
+   private static final float WIDTH_SCALE = 1.28F;
+
+   private final ModelRenderer[] slices = new ModelRenderer[SLICES];
 
    public CapeRenderer() {
       ModelBase owner = new ModelBase() {
@@ -43,9 +57,12 @@ public final class CapeRenderer {
       owner.textureWidth = 64;
       owner.textureHeight = 32;
 
-      this.cape = new ModelRenderer(owner, 0, 0);
-      this.cape.setTextureSize(64, 32);
-      this.cape.addBox(-5.0F, 0.0F, -1.0F, 10, 16, 1, 0.0F);
+      for(int i = 0; i < SLICES; ++i) {
+         ModelRenderer m = new ModelRenderer(owner, 0, i * SLICE_H);
+         m.setTextureSize(64, 32);
+         m.addBox(-5.0F, 0.0F, -1.0F, 10, SLICE_H, 1, 0.0F);
+         this.slices[i] = m;
+      }
    }
 
    @SubscribeEvent
@@ -122,8 +139,33 @@ public final class CapeRenderer {
 
       GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
       mc.getTextureManager().bindTexture(tex);
-      this.cape.render(0.0625F);
+      GlStateManager.disableCull();          // both faces; the cape is one unit thin
+      GlStateManager.scale(WIDTH_SCALE, 1.0F, 1.0F);
 
+      // A wave travelling down the cape, driven by how fast you are moving and
+      // how hard the cape is already being thrown back. Standing still it decays
+      // to almost nothing rather than flapping in still air.
+      float pace = (float)Math.min(0.4D, Math.sqrt(p.motionX * p.motionX + p.motionZ * p.motionZ));
+      float energy = Math.min(1.0F, pace * 3.4F + back / 90.0F);
+      float phase = (p.ticksExisted + pt) * 0.42F;
+
+      for(int i = 0; i < SLICES; ++i) {
+         if(i > 0) {
+            // Each slice hangs off the bottom edge of the one above it.
+            GlStateManager.translate(0.0F, SLICE_H * 0.0625F, 0.0F);
+
+            float t = (float)i / (float)(SLICES - 1);
+            float wave = (float)Math.sin(phase - i * 0.7D) * 3.2F * energy * t;
+            float droop = 1.1F * t;      // slight natural curl even at rest
+            GlStateManager.rotate(wave + droop, 1.0F, 0.0F, 0.0F);
+            GlStateManager.rotate((float)Math.sin(phase * 0.6D - i * 0.5D) * 1.6F * energy,
+                  0.0F, 1.0F, 0.0F);
+         }
+
+         this.slices[i].render(0.0625F);
+      }
+
+      GlStateManager.enableCull();
       GlStateManager.disableRescaleNormal();
       GlStateManager.popMatrix();
    }

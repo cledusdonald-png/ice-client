@@ -61,11 +61,11 @@ public final class CosmeticRegistry {
       // ---- wings -------------------------------------------------------
       add(new Cosmetic("wings_frost", "Frost Wings", CosmeticType.WINGS,
             Cosmetic.Rarity.EPIC, 1800,
-            "Sheets of ice that catch the light.", null, 0xBFE8FA));
+            "Layered feathers, pale as fresh snow.", null, 0xF2FAFF));
 
       add(new Cosmetic("wings_shadow", "Shadow Wings", CosmeticType.WINGS,
             Cosmetic.Rarity.LEGENDARY, 3000,
-            "Darker than the wall you're standing in.", null, 0x2A1E3D));
+            "Darker than the wall you're standing in.", null, 0x4A3A66));
 
       // ---- pets --------------------------------------------------------
       // Ground companions rather than orbiting trinkets; the shapes live in

@@ -71,6 +71,12 @@ public final class AccessoryRenderer {
       GlStateManager.enableBlend();
       GlStateManager.blendFunc(770, 771);
 
+      // Culling off. These are hand-built shapes with one winding order, so with
+      // culling on every face pointing away from the camera vanishes -- which is
+      // why the wings looked absent and the hats looked like they were inside
+      // the head. Two-sided is correct for thin geometry anyway.
+      GlStateManager.disableCull();
+
       float bodyYaw = interpolate(p.prevRenderYawOffset, p.renderYawOffset, pt);
       GlStateManager.translate(event.x, event.y, event.z);
       GlStateManager.rotate(180.0F - bodyYaw, 0.0F, 1.0F, 0.0F);
@@ -86,6 +92,7 @@ public final class AccessoryRenderer {
          drawWings(wings, p, pt);
       }
 
+      GlStateManager.enableCull();
       GlStateManager.disableBlend();
       GlStateManager.enableLighting();
       GlStateManager.enableTexture2D();
@@ -145,29 +152,128 @@ public final class AccessoryRenderer {
       GlStateManager.popMatrix();
    }
 
-   /** Two angled sheets on the back, opening and closing as you move. */
+   /**
+    * Feathered wings on the upper back.
+    *
+    * <p>Built as rows of individual feathers rather than one silhouette. A
+    * single flat sheet reads as a shape cut from paper -- it disappears edge-on
+    * and has no depth from any other angle. Three staggered rows, each feather
+    * swept a little further back than the last, is what gives the layered look
+    * of a real wing, and it still costs only a few dozen triangles.
+    */
    private void drawWings(Cosmetic c, EntityPlayer p, float pt) {
       GlStateManager.pushMatrix();
       // Upper back: a little below the neck (+y is down here) and behind it.
       // The cape sits at z = +0.125, which is what establishes +z as "back".
-      GlStateManager.translate(0.0F, 0.16F, 0.14F);
+      // The body's back surface is at z = +0.125 in this space (its box is 4
+      // units deep, scaled by 0.0625). Roots go behind that, or the feathers
+      // start inside the chest.
+      GlStateManager.translate(0.0F, 0.14F, 0.20F);
 
       float speed = (float)Math.min(0.35D,
             Math.sqrt(p.motionX * p.motionX + p.motionZ * p.motionZ));
-      float flap = (float)Math.sin((p.ticksExisted + pt) * 0.35D) * (4.0F + speed * 90.0F);
-      float open = 22.0F + speed * 70.0F + flap;
+      float beat = (float)Math.sin((p.ticksExisted + pt) * 0.18D);
+      float flap = beat * (5.0F + speed * 70.0F);
+      float open = 30.0F + speed * 45.0F + flap;
 
-      setColor(c.getColor(), 0.82F);
+      int rgb = c.getColor();
 
       for(int side = -1; side <= 1; side += 2) {
-         GlStateManager.pushMatrix();
-         GlStateManager.rotate(side * open, 0.0F, 1.0F, 0.0F);
-         GlStateManager.rotate(-14.0F, 1.0F, 0.0F, 0.0F);
-         wingSheet(side);
-         GlStateManager.popMatrix();
+         featheredWing(side, rgb, beat, open);
       }
 
       GlStateManager.popMatrix();
+   }
+
+   /**
+    * One wing: three rows of feathers fanning up and out from the shoulder.
+    *
+    * <p>Every feather's tip is computed directly rather than reached by rotating
+    * the matrix. Two earlier attempts put the wings through the player's chest
+    * because this model space has X and Y flipped, which reverses what
+    * {@code glRotate} does about those axes -- and getting that sign wrong is
+    * invisible until you look at the model. Building the vertices from explicit
+    * offsets removes the convention entirely: {@code BACK} is positive z because
+    * that is where the cape hangs, and up is negative y because the space is
+    * flipped. Both are stated once, here.
+    */
+   private static void featheredWing(int side, int rgb, float beat, float open) {
+      // row -> { count, spread degrees, base length, depth, shade }
+      float[][] rows = new float[][]{
+            {7.0F, 68.0F, 0.66F, 0.00F, 1.00F},
+            {6.0F, 58.0F, 0.48F, 0.045F, 0.87F},
+            {5.0F, 46.0F, 0.33F, 0.090F, 0.74F}};
+
+      // How far the whole wing lies back rather than out to the side. Driven by
+      // the flap, so the wings sweep back as they beat.
+      float sweep = 0.42F + (open - 30.0F) / 160.0F;
+
+      for(float[] row : rows) {
+         int count = (int)row[0];
+         float spread = row[1];
+         float length = row[2];
+         float depth = row[3];
+         float shade = row[4];
+
+         setColor(shade(rgb, shade), 0.95F);
+
+         for(int i = 0; i < count; ++i) {
+            float t = count == 1 ? 0.0F : (float)i / (float)(count - 1);
+
+            // Fan from swept-down at the outside to raised near the shoulder.
+            float ang = (float)Math.toRadians(-26.0D + t * spread + beat * 3.0D * t);
+            float len = length * (0.64F + 0.36F * (float)Math.sin(t * Math.PI));
+
+            float ux = (float)Math.cos(ang);      // outward
+            float uy = -(float)Math.sin(ang);     // up (negated: +y is down)
+
+            feather(side * 0.045F, 0.0F, depth,
+                  side * ux * len, uy * len, depth + len * sweep,
+                  0.055F + 0.03F * (1.0F - t));
+         }
+      }
+   }
+
+   /**
+    * One feather, from a root to a tip in 3D.
+    *
+    * @param w half-width at the base; the shape tapers to a point at the tip
+    */
+   private static void feather(float rx, float ry, float rz,
+                               float tx, float ty, float tz, float w) {
+      // Widen across the axis the feather is least aligned with, so a feather
+      // pointing straight up is still broad rather than edge-on.
+      float dx = tx - rx;
+      float dy = ty - ry;
+      float len = (float)Math.sqrt(dx * dx + dy * dy);
+      if(len < 1.0E-4F) {
+         return;
+      }
+
+      float px = -dy / len * w;
+      float py = dx / len * w;
+
+      Tessellator tess = Tessellator.getInstance();
+      WorldRenderer wr = tess.getWorldRenderer();
+      wr.begin(6, DefaultVertexFormats.POSITION);   // fan
+
+      wr.pos(rx, ry, rz).endVertex();
+      wr.pos(rx + px * 0.6F, ry + py * 0.6F, rz).endVertex();
+      wr.pos(rx + dx * 0.45F + px, ry + dy * 0.45F + py, rz + (tz - rz) * 0.45F).endVertex();
+      wr.pos(rx + dx * 0.80F + px * 0.7F, ry + dy * 0.80F + py * 0.7F, rz + (tz - rz) * 0.80F).endVertex();
+      wr.pos(tx, ty, tz).endVertex();
+      wr.pos(rx + dx * 0.80F - px * 0.5F, ry + dy * 0.80F - py * 0.5F, rz + (tz - rz) * 0.80F).endVertex();
+      wr.pos(rx + dx * 0.40F - px * 0.8F, ry + dy * 0.40F - py * 0.8F, rz + (tz - rz) * 0.40F).endVertex();
+      wr.pos(rx - px * 0.6F, ry - py * 0.6F, rz).endVertex();
+
+      tess.draw();
+   }
+
+   private static int shade(int rgb, float f) {
+      int r = (int)((rgb >> 16 & 255) * f);
+      int g = (int)((rgb >> 8 & 255) * f);
+      int b = (int)((rgb & 255) * f);
+      return r << 16 | g << 8 | b;
    }
 
 
