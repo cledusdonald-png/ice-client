@@ -60,6 +60,25 @@ public final class CosmeticManager {
       hideVanillaCape = v;
    }
 
+   /**
+    * Whether the pet rides your shoulder instead of walking behind you.
+    *
+    * <p>A preference rather than a property of the pet, because it depends on
+    * what you are doing: a companion trailing you looks better standing around
+    * a base, and is a liability in a corridor fight where it clips through
+    * everything. Some pets default to perching -- an owl on the ground is a
+    * strange sight -- but it is always yours to change.
+    */
+   private static boolean petOnShoulder;
+
+   public static boolean isPetOnShoulder() {
+      return petOnShoulder;
+   }
+
+   public static void setPetOnShoulder(boolean v) {
+      petOnShoulder = v;
+   }
+
    /** A pet from the user's own folder, or null. Same reasoning as customCape. */
    private static String customPet;
 

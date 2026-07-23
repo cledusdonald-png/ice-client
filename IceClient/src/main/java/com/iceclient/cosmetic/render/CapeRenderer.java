@@ -46,8 +46,8 @@ public final class CapeRenderer {
    private static final int SLICES = 8;
    private static final int SLICE_H = 16 / SLICES;
 
-   /** Wider than vanilla's 10 units; the texture is stretched to match. */
-   private static final float WIDTH_SCALE = 1.28F;
+   /** Barely wider than vanilla. 1.28 made it read as a slab rather than a cape. */
+   private static final float WIDTH_SCALE = 1.04F;
 
    private final ModelRenderer[] slices = new ModelRenderer[SLICES];
 

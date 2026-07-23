@@ -196,10 +196,163 @@ public final class LunarApi {
          IceClient.LOGGER.info("Apollo: " + shortName + " { " + dump + " }");
       }
 
-      // Deliberately no per-module decoding here yet. The field numbers for
-      // each Apollo message are defined in the .proto schemas, and inventing
-      // them is exactly the mistake this rewrite exists to undo. Turn on Debug
-      // Packets, note the numbers a real server sends, and decode from that.
+      // Waypoints. The field numbers below come from Apollo's own
+      // WaypointModuleImpl (MIT, Moonsworth): the builder sets them in
+      // declaration order, which is what protobuf numbers them by.
+      //
+      //   DisplayWaypointMessage
+      //     1 name          5 hidden          9 style
+      //     2 location      6 show_beam
+      //     3 color         7 highlight_block
+      //     4 prevent_removal  8 highlight_block_line_width
+      //
+      //   BlockLocation: 1 world, 2 x, 3 y, 4 z
+      //   Color:         1 color (packed ARGB int)
+      //
+      // Everything is read defensively -- a message that does not match is
+      // ignored rather than half-applied, and Debug Packets still dumps the
+      // real shape so this can be corrected against a live server.
+      if("DisplayWaypointMessage".equals(shortName)) {
+         readApolloWaypoint(body);
+      } else if("RemoveWaypointMessage".equals(shortName)) {
+         String n = ProtoReader.string(body, 1);
+         if(n != null) {
+            WAYPOINTS.remove(n);
+         }
+      } else if("ResetWaypointsMessage".equals(shortName)) {
+         WAYPOINTS.clear();
+      } else if("HideWaypointMessage".equals(shortName)
+            || "ShowWaypointMessage".equals(shortName)) {
+         setVisible(ProtoReader.string(body, 1), !shortName.startsWith("Hide"));
+      } else if("DisplayCooldownMessage".equals(shortName)) {
+         readApolloCooldown(body);
+      } else if("RemoveCooldownMessage".equals(shortName)) {
+         String n = ProtoReader.string(body, 1);
+         if(n != null) {
+            COOLDOWNS.remove(n);
+         }
+      } else if("ClearCooldownsMessage".equals(shortName)) {
+         COOLDOWNS.clear();
+      }
+   }
+
+   /**
+    * A server-sent cooldown -- ability timers, pet summons, anything the server
+    * wants counted down on the HUD.
+    *
+    * <p>Field numbers from Apollo's CooldownModuleImpl (MIT, Moonsworth):
+    * DisplayCooldownMessage is 1 name, 2 duration, 3 icon, 4 style, and the
+    * duration is a {@code google.protobuf.Duration} of 1 seconds, 2 nanos.
+    */
+   private static void readApolloCooldown(Map<Integer, List<Object>> body) {
+      String name = ProtoReader.string(body, 1);
+      byte[] durBytes = ProtoReader.bytes(body, 2);
+
+      if(name == null || durBytes == null) {
+         if(debug) {
+            IceClient.LOGGER.warn("Apollo: cooldown with no name or duration; ignored");
+         }
+         return;
+      }
+
+      Map<Integer, List<Object>> dur =
+            ProtoReader.scan(io.netty.buffer.Unpooled.wrappedBuffer(durBytes));
+
+      long seconds = ProtoReader.number(dur, 1, 0L);
+      long nanos = ProtoReader.number(dur, 2, 0L);
+      long ms = seconds * 1000L + nanos / 1000000L;
+
+      if(ms <= 0L) {
+         COOLDOWNS.remove(name);
+         return;
+      }
+
+      // Reuses the same Cooldown the legacy channel produces, so the HUD has one
+      // source regardless of which protocol the server speaks -- and totalMs
+      // comes free, which is what a progress bar needs.
+      COOLDOWNS.put(name, new Cooldown(name, System.currentTimeMillis() + ms, ms, 0));
+
+      if(debug) {
+         IceClient.LOGGER.info("Apollo: cooldown '" + name + "' for " + ms + "ms");
+      }
+   }
+
+   /** Rebuilds a waypoint with a new visibility, since Waypoint is immutable. */
+   private static void setVisible(String name, boolean visible) {
+      Waypoint w = name == null ? null : WAYPOINTS.get(name);
+      if(w != null) {
+         WAYPOINTS.put(name,
+               new Waypoint(w.name, w.world, w.color, w.x, w.y, w.z, w.forced, visible));
+      }
+   }
+
+   /** Turns a DisplayWaypointMessage body into one of our waypoints. */
+   private static void readApolloWaypoint(Map<Integer, List<Object>> body) {
+      String name = ProtoReader.string(body, 1);
+      byte[] locBytes = ProtoReader.bytes(body, 2);
+
+      if(name == null || locBytes == null) {
+         if(debug) {
+            IceClient.LOGGER.warn("Apollo: waypoint with no name or location; ignored");
+         }
+         return;
+      }
+
+      Map<Integer, List<Object>> loc =
+            ProtoReader.scan(io.netty.buffer.Unpooled.wrappedBuffer(locBytes));
+
+      // MIN_VALUE as the sentinel rather than 0, since 0 is a real coordinate.
+      long x = ProtoReader.number(loc, 2, Long.MIN_VALUE);
+      long y = ProtoReader.number(loc, 3, Long.MIN_VALUE);
+      long z = ProtoReader.number(loc, 4, Long.MIN_VALUE);
+
+      if(x == Long.MIN_VALUE || y == Long.MIN_VALUE || z == Long.MIN_VALUE) {
+         if(debug) {
+            IceClient.LOGGER.warn("Apollo: waypoint '" + name + "' had no coordinates; ignored");
+         }
+         return;
+      }
+
+      // Signed coordinates arrive zigzag-encoded (sint32), which is how negative
+      // values survive a varint. Reading them raw makes every westward waypoint
+      // land billions of blocks away.
+      int wx = zigzag(x);
+      int wy = zigzag(y);
+      int wz = zigzag(z);
+
+      int color = 0xFF5CC6FF;
+      byte[] colBytes = ProtoReader.bytes(body, 3);
+      if(colBytes != null) {
+         Map<Integer, List<Object>> col =
+               ProtoReader.scan(io.netty.buffer.Unpooled.wrappedBuffer(colBytes));
+         long argb = ProtoReader.number(col, 1, Long.MIN_VALUE);
+         if(argb != Long.MIN_VALUE) {
+            color = (int)argb | 0xFF000000;
+         }
+      }
+
+      boolean forced = ProtoReader.number(body, 4, 0L) != 0L;   // prevent_removal
+      boolean visible = ProtoReader.number(body, 5, 0L) == 0L;  // hidden -> inverted
+
+      WAYPOINTS.put(name, new Waypoint(name, ProtoReader.string(loc, 1),
+            color, wx, wy, wz, forced, visible));
+
+      if(debug) {
+         IceClient.LOGGER.info("Apollo: waypoint '" + name + "' at "
+               + wx + ", " + wy + ", " + wz);
+      }
+   }
+
+   /**
+    * Undoes protobuf's zigzag encoding for signed integers.
+    *
+    * <p>Values that look implausible are passed through unchanged: some servers
+    * send plain int32 rather than sint32, and a coordinate in the millions is a
+    * surer sign of the wrong encoding than of a real position.
+    */
+   private static int zigzag(long v) {
+      long dec = (v >>> 1) ^ -(v & 1L);
+      return Math.abs(dec) <= 30000000L ? (int)dec : (int)v;
    }
 
    /**

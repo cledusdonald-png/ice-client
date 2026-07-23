@@ -46,6 +46,14 @@ public final class PetModel {
    public final float scale;
    public final boolean spin;
    public final boolean bob;
+   /**
+    * Whether this one belongs on a shoulder when nothing says otherwise.
+    *
+    * <p>Only a default. Something that flies or perches looks wrong walking, and
+    * something with four legs looks wrong clinging to a collarbone, but the user
+    * decides -- this just picks the sensible starting point.
+    */
+   public boolean perchByDefault;
    public final List<Part> parts = new ArrayList<Part>();
 
    /** One shape. Kept as plain fields; this is data, not behaviour. */
@@ -103,6 +111,12 @@ public final class PetModel {
          p.color = color;
          p.down = down;
          this.model.parts.add(p);
+         return this;
+      }
+
+      /** Marks this pet as one that belongs on a shoulder unless told otherwise. */
+      public Builder perches() {
+         this.model.perchByDefault = true;
          return this;
       }
 

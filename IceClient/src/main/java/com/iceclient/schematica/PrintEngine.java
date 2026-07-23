@@ -81,6 +81,14 @@ public final class PrintEngine {
    private BlockPos lastCenter;
 
    public void reset() {
+      // Give the hotbar back, since this is where printing stops.
+      Minecraft mc = Minecraft.getMinecraft();
+      if(this.slotToRestore >= 0 && mc.thePlayer != null
+            && mc.thePlayer.inventory.currentItem != this.slotToRestore) {
+         mc.thePlayer.inventory.currentItem = this.slotToRestore;
+         mc.getNetHandler().addToSendQueue(new C09PacketHeldItemChange(this.slotToRestore));
+      }
+
       this.queue.clear();
       this.cursor = 0;
       this.rebuildIn = 0;
@@ -122,21 +130,74 @@ public final class PrintEngine {
       int sent = 0;
       int broke = 0;
 
-      while(this.cursor < this.queue.size() && sent < budget) {
-         BlockPos pos = this.queue.get(this.cursor++);
+      // ONE hotbar switch per tick, at most.
+      //
+      // This is the whole reason placement looked broken. holdSlot used to fire
+      // per placement, so a 64-block budget meant up to 64 held-item packets in
+      // a single tick -- servers ignore or flag a burst like that, so none of
+      // the switches took effect and every block went down as whatever was
+      // actually in hand. Placing only what the held item can place, and
+      // switching once when it runs out, is also just how a person plays.
+      int held = mc.thePlayer.inventory.currentItem;
+      int wantSlot = -1;
 
-         Result r = this.attempt(mc, cfg, pos, broke < BREAK_BUDGET);
-         if(r == Result.PLACED) {
-            ++sent;
-         } else if(r == Result.BROKE) {
-            ++broke;
+      for(int pass = 0; pass < 2 && sent < budget; ++pass) {
+         int i = this.cursor;
+
+         while(i < this.queue.size() && sent < budget) {
+            BlockPos pos = this.queue.get(i);
+            int need = this.slotNeededFor(mc, cfg, pos);
+
+            if(need == NEED_NONE) {
+               // Nothing to do here at all -- drop it so the cursor advances.
+               if(i == this.cursor) {
+                  ++this.cursor;
+               }
+               ++i;
+               continue;
+            }
+
+            if(need == NEED_BREAK) {
+               if(broke < BREAK_BUDGET && this.attempt(mc, cfg, pos, true) == Result.BROKE) {
+                  ++broke;
+               }
+               ++i;
+               continue;
+            }
+
+            if(need == held) {
+               if(this.place(mc, cfg, pos)) {
+                  ++sent;
+               }
+               ++i;
+               continue;
+            }
+
+            // Needs a different slot. Remember the first one and carry on --
+            // there may be more blocks the held item can still place.
+            if(wantSlot < 0) {
+               wantSlot = need;
+            }
+
+            ++i;
+         }
+
+         // Nothing placeable with what we are holding: take the one switch and
+         // run the pass again with the new slot.
+         if(sent == 0 && wantSlot >= 0 && pass == 0) {
+            this.holdSlot(mc, wantSlot);
+            held = wantSlot;
+            wantSlot = -1;
+         } else {
+            break;
          }
       }
 
-      // Hand the hotbar back only once the whole batch is done. Restoring
-      // between placements is what silently broke every placement before: the
-      // revert cancelled the slot change before the client ever synced it.
-      this.releaseSlot(mc, cfg);
+      // The slot is deliberately NOT restored here. Switching to a block and
+      // switching straight back is two packets a tick and guarantees the next
+      // tick has to switch again -- which is the burst this rewrite exists to
+      // stop. The hotbar is handed back when the printer is switched off, in
+      // reset(), which is the point at which you actually want it back.
 
       // Exhausting the queue used to mean idling until the next scheduled
       // rebuild -- up to half a second of doing nothing with work still to do.
@@ -297,19 +358,83 @@ public final class PrintEngine {
          return Result.BROKE;
       }
 
+      return Result.NOTHING;
+   }
+
+   /** Returned by {@link #slotNeededFor} when a position wants nothing done. */
+   private static final int NEED_NONE = -1;
+   /** Returned when the position holds a block that has to be broken first. */
+   private static final int NEED_BREAK = -2;
+
+   /**
+    * What this position needs: a hotbar slot, a break, or nothing.
+    *
+    * <p>Split out from the placing so the tick loop can decide <em>which</em>
+    * slot to hold before committing to a switch, rather than switching for each
+    * block as it goes.
+    */
+   private int slotNeededFor(Minecraft mc, Config cfg, BlockPos pos) {
+      IBlockState want = SchematicaBridge.blockStateAt(pos);
+      if(want == null) {
+         return NEED_NONE;
+      }
+
+      if(cfg.disableGens && isGenerator(want.getBlock())) {
+         return NEED_NONE;
+      }
+
+      IBlockState have = mc.theWorld.getBlockState(pos);
+      if(matches(have, want)) {
+         return NEED_NONE;
+      }
+
+      if(mc.thePlayer.getDistanceSq(pos) > cfg.placeDistance * cfg.placeDistance) {
+         return NEED_NONE;
+      }
+
+      if(isPistonCell(have.getBlock()) || isPistonCell(want.getBlock())) {
+         return NEED_NONE;
+      }
+
+      boolean occupied = have.getBlock() != Blocks.air && !have.getBlock().getMaterial().isLiquid();
+      if(occupied) {
+         // Same block, wrong state -- auto-tick's job, not ours.
+         if(have.getBlock() == want.getBlock() || !cfg.replaceWrong) {
+            return NEED_NONE;
+         }
+
+         // Schematic wants nothing here at all: that is "extra", which is a
+         // separate choice from correcting a wrong block.
+         if(want.getBlock() == Blocks.air && !cfg.removeExtra) {
+            return NEED_NONE;
+         }
+
+         return NEED_BREAK;
+      }
+
+      if(this.findSupport(mc, cfg, pos) == null) {
+         return NEED_NONE;
+      }
+
       int slot = this.resolveSlot(mc, cfg, want.getBlock());
-      if(slot < 0) {
-         // Nothing to place it with. Silently skipping is correct: the block
-         // may simply not be in the inventory at all.
-         return Result.NOTHING;
+      return slot < 0 ? NEED_NONE : slot;
+   }
+
+   /**
+    * Places one block, assuming the right slot is already held.
+    *
+    * @return true if a placement packet went out
+    */
+   private boolean place(Minecraft mc, Config cfg, BlockPos pos) {
+      IBlockState want = SchematicaBridge.blockStateAt(pos);
+      if(want == null) {
+         return false;
       }
 
       EnumFacing face = this.findSupport(mc, cfg, pos);
       if(face == null) {
-         return Result.NOTHING;
+         return false;
       }
-
-      this.holdSlot(mc, slot);
 
       if(cfg.orientBlocks) {
          this.aimFor(mc, want);
@@ -326,7 +451,7 @@ public final class PrintEngine {
             mc.thePlayer.getHeldItem(), against, clickFace, hit);
       mc.thePlayer.swingItem();
 
-      return Result.PLACED;
+      return true;
    }
 
    // ------------------------------------------------------------------
@@ -560,6 +685,10 @@ public final class PrintEngine {
       public boolean breakInstantly;
       public boolean disableGens;
       public boolean keepSlot;
+      /** Break blocks the schematic wants empty, not just wrong ones. */
+      public boolean removeExtra;
+      /** Ticks between breaks, so clearing is never as fast as placing. */
+      public int breakDelay = 4;
       public boolean useInventory = true;
       public boolean orientBlocks = true;
       public boolean[] slots = new boolean[]{true, true, true, true, true, true, true, true, true};

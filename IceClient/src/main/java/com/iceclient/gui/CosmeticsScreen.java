@@ -264,6 +264,30 @@ public class CosmeticsScreen extends GuiScreen {
 
       int y = this.listY - this.scroll;
 
+      // The Pet tab leads with a walk/perch switch, for the same reason the Cape
+      // tab leads with the vanilla toggle: it is part of choosing the pet.
+      if(this.tabs[this.tab] == CosmeticType.PET) {
+         boolean perch = CosmeticManager.isPetOnShoulder();
+         boolean hov = mouseX >= this.listX && mouseX <= this.listX + this.listW
+               && mouseY >= y && mouseY <= y + 20
+               && mouseY >= this.listY && mouseY <= this.listY + this.listH;
+
+         drawRect(this.listX, y, this.listX + this.listW, y + 20, hov ? CARD_HOVER : 0x900A1420);
+         drawRect(this.listX, y, this.listX + 2, y + 20, ACCENT);
+
+         this.fontRendererObj.drawStringWithShadow("Where it sits", this.listX + 8, y + 3, TEXT);
+         this.fontRendererObj.drawString(
+               perch ? "riding your shoulder" : "walking behind you (some perch anyway)",
+               this.listX + 8, y + 12, MUTED);
+
+         String state = perch ? "SHOULDER" : "GROUND";
+         this.fontRendererObj.drawString(state,
+               this.listX + this.listW - this.fontRendererObj.getStringWidth(state) - 8,
+               y + 7, ACCENT);
+
+         y += 24;
+      }
+
       // The Cape tab leads with a vanilla-cape switch. It belongs here rather
       // than in a settings menu: it is the same decision as picking a cape, and
       // this is where you are when you make it.
@@ -535,8 +559,20 @@ public class CosmeticsScreen extends GuiScreen {
             && mouseY >= this.listY && mouseY <= this.listY + this.listH) {
          int rel = mouseY - this.listY + this.scroll;
 
-         // The vanilla-cape row sits above the list on the Cape tab and shifts
-         // everything below it; the offset has to match drawList's.
+         // Both tabs put a switch above the list, which shifts everything below
+         // it; these offsets have to match drawList's.
+         if(this.tabs[this.tab] == CosmeticType.PET) {
+            if(rel < 24) {
+               CosmeticManager.setPetOnShoulder(!CosmeticManager.isPetOnShoulder());
+               say(CosmeticManager.isPetOnShoulder()
+                     ? "Pets ride your shoulder."
+                     : "Pets walk behind you.");
+               return;
+            }
+
+            rel -= 24;
+         }
+
          if(this.tabs[this.tab] == CosmeticType.CAPE) {
             if(rel < 24) {
                CosmeticManager.setVanillaCapeHidden(!CosmeticManager.isVanillaCapeHidden());

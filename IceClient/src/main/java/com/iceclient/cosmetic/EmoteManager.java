@@ -33,17 +33,24 @@ public final class EmoteManager {
    private EmoteManager() {
    }
 
-   /** Emote lengths in milliseconds. */
+   /**
+    * Emote lengths in milliseconds.
+    *
+    * <p>Longer than they need to be for the animation's sake, because an emote
+    * also has to survive the trip to everyone else: a viewer polls, sees it, and
+    * needs enough of it left to be worth watching. Short emotes were arriving
+    * with a fraction of a second to run.
+    */
    public static long durationOf(String id) {
       if("emote_sit".equals(id)) {
-         return 4000L;
+         return 6000L;
       }
 
       if("emote_floss".equals(id)) {
-         return 3200L;
+         return 4500L;
       }
 
-      return 2200L;   // wave
+      return 3500L;   // wave
    }
 
    public static void start(EntityPlayer p, String id) {
@@ -136,8 +143,10 @@ public final class EmoteManager {
       t = Math.max(0.0F, Math.min(1.0F, t));
 
       // Ease in and out at the edges so an emote starts and finishes from the
-      // normal stance instead of snapping into it.
-      float blend = (float)Math.sin(Math.min(1.0D, Math.min(t, 1.0F - t) * 6.0D) * Math.PI / 2.0D);
+      // normal stance instead of snapping into it. The ramp is short -- a tenth
+      // of the emote each end -- because a viewer who joins late lands in the
+      // tail, and a long fade meant they saw a twitch rather than a wave.
+      float blend = (float)Math.sin(Math.min(1.0D, Math.min(t, 1.0F - t) * 10.0D) * Math.PI / 2.0D);
 
       if("emote_wave".equals(e.id)) {
          wave(m, t, blend);
@@ -152,15 +161,25 @@ public final class EmoteManager {
       return true;
    }
 
-   /** Right arm up, hand swinging from the elbow. */
+   /**
+    * Right arm straight up, swinging wide.
+    *
+    * <p>The swing was 0.45 radians, which is about 25 degrees -- barely visible
+    * from more than a few blocks, and the head tilt ended up reading as the
+    * whole animation. It is nearly double that now, and the arm is raised past
+    * vertical so the silhouette changes rather than just the pose.
+    */
    private static void wave(ModelBiped m, float t, float blend) {
-      float swing = (float)Math.sin(t * Math.PI * 6.0D) * 0.45F;
+      float swing = (float)Math.sin(t * Math.PI * 7.0D) * 0.80F;
 
-      m.bipedRightArm.rotateAngleX = lerp(m.bipedRightArm.rotateAngleX, -2.55F, blend);
-      m.bipedRightArm.rotateAngleZ = lerp(m.bipedRightArm.rotateAngleZ, -0.35F + swing, blend);
+      m.bipedRightArm.rotateAngleX = lerp(m.bipedRightArm.rotateAngleX, -2.90F, blend);
+      m.bipedRightArm.rotateAngleZ = lerp(m.bipedRightArm.rotateAngleZ, -0.30F + swing, blend);
       m.bipedRightArm.rotateAngleY = lerp(m.bipedRightArm.rotateAngleY, 0.0F, blend);
 
-      m.bipedHead.rotateAngleZ = lerp(m.bipedHead.rotateAngleZ, swing * 0.16F, blend);
+      // Left arm settles slightly out, so the pose is not half a normal stance.
+      m.bipedLeftArm.rotateAngleZ = lerp(m.bipedLeftArm.rotateAngleZ, -0.18F, blend);
+
+      m.bipedHead.rotateAngleZ = lerp(m.bipedHead.rotateAngleZ, swing * 0.14F, blend);
    }
 
    /** Knees up, body settled, arms braced behind. */

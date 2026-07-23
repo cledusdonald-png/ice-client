@@ -34,7 +34,18 @@ import java.util.Map;
 public final class CosmeticSync {
 
    private static final String URL_WORN = "http://5.175.213.69/api/worn";
-   private static final long PERIOD_MS = 10000L;
+
+   /**
+    * How often we ask what everyone is wearing.
+    *
+    * <p>This was ten seconds, which is fine for a cape and useless for an emote:
+    * a three-second animation would be caught only if a poll happened to land
+    * inside it, and a poll landing near the end showed a twitch, because that is
+    * where the pose is easing back out. Two seconds means an emote is always
+    * seen, and for a faction of five the traffic is negligible -- a few hundred
+    * bytes a second, total.
+    */
+   private static final long PERIOD_MS = 2000L;
 
    private long nextBeat;
    private volatile boolean inFlight;

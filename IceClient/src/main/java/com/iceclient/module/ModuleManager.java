@@ -127,6 +127,7 @@ public class ModuleManager {
       tag(register(new CompassModule()), ModuleCategory.HUD, (String)null);
       tag(register(new ScoreboardModule()), ModuleCategory.HUD, (String)null);
       tag(register(new PotCounterModule()), ModuleCategory.HUD, (String)null);
+      tag(register(new com.iceclient.module.modules.hud.CooldownHud()), ModuleCategory.HUD, (String)null);
       tag(register(new com.iceclient.module.modules.render.IceTags()), ModuleCategory.HUD, (String)null);
       tag(register(new com.iceclient.module.modules.render.ScrollableTooltips()), ModuleCategory.GENERAL, (String)null);
       tag(register(new TargetHudModule()), ModuleCategory.COMBAT, (String)null);
@@ -192,6 +193,7 @@ public class ModuleManager {
       tag(register(new ArmorSetTags()), ModuleCategory.FACTIONS, "Minecadia");
       tag(register(new HideSchematicaGui()), ModuleCategory.PRINTER, "Printer");
       tag(register(new Macros()), ModuleCategory.GENERAL, (String)null);
+      tag(register(new com.iceclient.module.modules.misc.Emotes()), ModuleCategory.GENERAL, (String)null);
       tag(register(new ItemPhysics()), ModuleCategory.MECHANIC, (String)null);
       tag(register(new RgbRedstone()), ModuleCategory.MECHANIC, (String)null);
       tag(register(new RedstonePower()), ModuleCategory.MECHANIC, (String)null);

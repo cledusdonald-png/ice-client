@@ -43,22 +43,6 @@ import net.minecraftforge.fml.common.gameevent.TickEvent.Phase;
  */
 public class Printer extends Module {
 
-   /**
-    * Which placement loop runs.
-    *
-    * <p>"Schematica" hands everything to the mod's own printer -- proven, but a
-    * closed box that decides its own ordering and cannot be told about
-    * orientation. "Ice" runs {@link PrintEngine}: bottom-to-top so a layer never
-    * goes down before its support, a held-item packet per placement so the
-    * server places what we mean, inventory pulled into the hotbar, and a look
-    * packet before directional blocks so dispensers and repeaters face the way
-    * the schematic asks regardless of which way the cannon points.
-    *
-    * <p>Both are kept so they can be compared on the same build rather than by
-    * memory of how the other one felt.
-    */
-   private final com.iceclient.setting.ModeSetting engine =
-         this.addMode("Engine", "Ice", "Ice", "Schematica");
    private final NumberSetting placeDistance = this.addNumber("Place Distance", 5.0D, 1.0D, 9.0D, 1.0D);
    private final BooleanSetting placeInstantly = this.addBool("Place Instantly", true);
    private final NumberSetting placeDelay = this.addNumber("Place Delay", 0.0D, 0.0D, 20.0D, 1.0D);
@@ -86,7 +70,7 @@ public class Printer extends Module {
    private final BooleanSetting slot9 = this.addBool("Slot 9", true);
 
    private int autoTickCooldown;
-   private int breakCooldown;
+
    private final com.iceclient.schematica.PrintEngine engineImpl = new com.iceclient.schematica.PrintEngine();
 
    /** Snapshots the settings the engine needs into its plain config object. */
@@ -102,6 +86,8 @@ public class Printer extends Module {
       c.replaceWrong = this.breakWrong.get();
       c.breakInstantly = this.breakInstantly.get();
       c.keepSlot = false;
+      c.removeExtra = this.removeExtra.get();
+      c.breakDelay = this.breakDelay.getInt();
       c.useInventory = true;
       c.orientBlocks = true;
       c.slots = this.slots();
@@ -110,7 +96,6 @@ public class Printer extends Module {
 
    public Printer() {
       super("Printer", "Auto-places the loaded schematic", ModuleCategory.FACTIONS);
-      this.engine.inSection("GENERAL");
       this.placeDistance.inSection("GENERAL");
       this.placeInstantly.inSection("GENERAL");
       this.placeDelay.inSection("GENERAL");
@@ -163,17 +148,24 @@ public class Printer extends Module {
    }
 
    protected void onEnable() {
+      // Schematica's own printer is never switched on. Turned off here as well
+      // as in the tick, so a flag left over from a previous session cannot get
+      // one free pass placing blocks before the tick notices it.
       if(SchematicaBridge.isAvailable()) {
-         SchematicaBridge.setPrinterEnabled(true);
-         this.pushFullConfig();
-         SchematicaBridge.setPrinting(true);
+         SchematicaBridge.setPrinting(false);
       }
+
+      this.engineImpl.reset();
    }
 
    protected void onDisable() {
       if(SchematicaBridge.isAvailable()) {
          SchematicaBridge.setPrinting(false);
       }
+
+      // Drop the queue: it holds positions from a schematic that may be moved
+      // or unloaded before this is switched back on.
+      this.engineImpl.reset();
    }
 
    @SubscribeEvent
@@ -181,39 +173,24 @@ public class Printer extends Module {
       if(this.isEnabled() && event.phase == Phase.END) {
          if(this.mc.thePlayer != null && this.mc.theWorld != null && this.mc.playerController != null) {
             if(SchematicaBridge.isAvailable() && SchematicaBridge.hasSchematic()) {
-               boolean ice = this.engine.is("Ice");
-
-               if(ice) {
-                  // Schematica's loop must be off, or both place into the same
-                  // holes and every block gets a duplicate packet.
-                  if(SchematicaBridge.isPrinting()) {
-                     SchematicaBridge.setPrinting(false);
-                  }
-
-                  if(this.mc.currentScreen == null) {
-                     this.engineImpl.tick(this.buildEngineConfig());
-                  }
-               } else {
-                  // Schematica's own clearing is always off: its rule is "state
-                  // differs", which eats repeaters and pistons. runBreaker does
-                  // the clearing with rules that can tell those apart.
-                  SchematicaBridge.applyPrinterScalars(this.placeDistance.getInt(), this.placeInstantly.get(),
-                        this.placeDelay.getInt(), this.timeout.getInt(), this.placeAdjacent.get(),
-                        false, false);
-                  SchematicaBridge.setPrinterEnabled(true);
-
-                  if(this.mc.currentScreen == null && !SchematicaBridge.isPrinting()) {
-                     SchematicaBridge.setPrinting(true);
-                  }
+               // Schematica's own printer stays off, always.
+               //
+               // There used to be a switch between it and ours, which was a
+               // mistake: whichever was not selected still had to be actively
+               // suppressed every tick, both wanted the same holes, and the
+               // "Schematica" side placed blocks everywhere because its rule
+               // for wrongness is "state differs" -- which is true of every
+               // repeater and every extended piston in a cannon.
+               if(SchematicaBridge.isPrinting()) {
+                  SchematicaBridge.setPrinting(false);
                }
 
                if(this.mc.currentScreen == null) {
-                  // Break before ticking: a wrong block occupying the spot has
-                  // to go before anything can be placed and then ticked there.
-                  if(this.breakWrong.get()) {
-                     this.runBreaker();
-                  }
+                  this.engineImpl.tick(this.buildEngineConfig());
 
+                  // Auto-tick after placing: a repeater has to exist before its
+                  // delay can be set. Breaking is the engine's job now, since it
+                  // already knows which positions are wrong.
                   if(this.autoTick.get()) {
                      this.runAutoTick();
                   }
@@ -229,71 +206,6 @@ public class Printer extends Module {
             false, false, this.slots());
    }
 
-   /**
-    * Breaks blocks that are the wrong <em>block</em>, and nothing else.
-    *
-    * <p>Schematica's own clearing is left switched off and this runs instead,
-    * because its rule is "world state differs from schematic state", which is
-    * far too broad. A repeater on the wrong delay and a piston mid-extension
-    * both differ from the schematic while being exactly the blocks you must not
-    * touch -- breaking the repeater destroys it before auto-tick can set the
-    * delay, and breaking the piston kills the cannon mid-fire.
-    *
-    * <p>So the rule here is Orbit's: only ever break when the block <em>type</em>
-    * is wrong, never when only its state is, and never go near a piston cell in
-    * either the world or the schematic. Anything the same block as the schematic
-    * wants is left for auto-tick to correct in place.
-    */
-   private void runBreaker() {
-      if(this.breakCooldown-- > 0) {
-         return;
-      }
-
-      BlockPos[] target = new BlockPos[]{null};
-      SchematicaBridge.forEachSchematicBlock(this.placeDistance.get(), (world, want) -> {
-         if(target[0] != null || !this.mc.theWorld.isBlockLoaded(world, false)) {
-            return;
-         }
-
-         Block have = this.mc.theWorld.getBlockState(world).getBlock();
-         if(have == Blocks.air || have.getMaterial().isLiquid()) {
-            return;
-         }
-
-         Block wanted = want == null ? Blocks.air : want.getBlock();
-
-         // Same block: only its state is off, which is auto-tick's job.
-         if(have == wanted) {
-            return;
-         }
-
-         // Pistons are never safe to break -- extended ones always look wrong.
-         if(isPistonCell(have) || isPistonCell(wanted)) {
-            return;
-         }
-
-         // Schematic wants nothing here; that is "extra", a separate choice.
-         if(wanted == Blocks.air && !this.removeExtra.get()) {
-            return;
-         }
-
-         if(this.mc.thePlayer.getDistanceSq(world) > this.placeDistance.get() * this.placeDistance.get()) {
-            return;
-         }
-
-         target[0] = world;
-      });
-
-      if(target[0] != null) {
-         this.mc.playerController.onPlayerDamageBlock(target[0], EnumFacing.UP);
-         if(this.breakInstantly.get()) {
-            this.mc.playerController.onPlayerDestroyBlock(target[0], EnumFacing.UP);
-         }
-
-         this.mc.thePlayer.swingItem();
-         this.breakCooldown = this.breakDelay.getInt();
-      }
-   }
 
    /**
     * Piston bases, heads and the moving-block entity.

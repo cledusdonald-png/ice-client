@@ -79,7 +79,12 @@ public final class PetRenderer {
       }
 
       for(EntityPlayer p : mc.theWorld.playerEntities) {
-         if(petFor(p) == null && customFor(p) == null) {
+         // A perched pet is drawn on the body by AccessoryRenderer; simulating
+         // a ground position for it too would leave a second copy walking
+         // around behind the player.
+         boolean none = petFor(p) == null && customFor(p) == null;
+
+         if(none || AccessoryRenderer.perchedPet(p) != null) {
             this.pets.remove(p.getName());
             continue;
          }

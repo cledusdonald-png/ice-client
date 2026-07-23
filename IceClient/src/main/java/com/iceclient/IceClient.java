@@ -38,7 +38,7 @@ public class IceClient {
     * {@link #displayVersion()}, so the only edit when releasing is this line
     * and {@code mod_version} in gradle.properties.
     */
-   public static final String VERSION = "2.0.0";
+   public static final String VERSION = "3.0.0";
 
    public static final Logger LOGGER = LogManager.getLogger("Ice Client");
 
@@ -83,7 +83,8 @@ public class IceClient {
    private static final int GUI_KEY = 54;          // Right Shift
    private static final int HUD_EDITOR_KEY = 157;  // Right Ctrl
    private static final int COSMETICS_KEY = 184;   // Right Alt
-   private static final int EMOTE_KEY = 34;        // G
+   private static final int EMOTE_KEY = 34;        // G  -- replay the bound emote
+   private static final int EMOTE_WHEEL_KEY = 48;  // B  -- hold for the picker
 
    public IceClient() {
    }
@@ -144,14 +145,23 @@ public class IceClient {
                mc.displayGuiScreen(new HudEditorScreen());
             } else if(Keyboard.getEventKey() == COSMETICS_KEY) {
                mc.displayGuiScreen(new com.iceclient.gui.CosmeticsScreen());
-            } else if(Keyboard.getEventKey() == EMOTE_KEY) {
-               // Plays whatever is in the emote slot; choosing one in the
-               // wardrobe is what binds it here.
-               String id = com.iceclient.cosmetic.CosmeticManager.getEquipped(
-                     com.iceclient.cosmetic.CosmeticType.EMOTE);
-               if(id != null) {
-                  com.iceclient.cosmetic.EmoteManager.start(mc.thePlayer, id);
-                  COSMETIC_SYNC.pokeNow();
+            } else {
+               // Emote keys are settings on the Emotes module rather than
+               // constants here: B and G are keys plenty of people already use
+               // for something else, and there was no way to change them.
+               int key = Keyboard.getEventKey();
+               int play = com.iceclient.module.modules.misc.Emotes.playKey();
+               int wheel = com.iceclient.module.modules.misc.Emotes.wheelKey();
+
+               if(play != 0 && key == play) {
+                  String id = com.iceclient.cosmetic.CosmeticManager.getEquipped(
+                        com.iceclient.cosmetic.CosmeticType.EMOTE);
+                  if(id != null) {
+                     com.iceclient.cosmetic.EmoteManager.start(mc.thePlayer, id);
+                     COSMETIC_SYNC.pokeNow();
+                  }
+               } else if(wheel != 0 && key == wheel) {
+                  mc.displayGuiScreen(new com.iceclient.gui.EmoteWheelScreen(wheel));
                }
             }
 

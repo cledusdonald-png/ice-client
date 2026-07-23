@@ -62,10 +62,13 @@ public final class AccessoryRenderer {
          drawTrail(p, trail);
       }
 
-      // Pets are not handled here any more: they walk on the ground with their
-      // own position and heading, which cannot be expressed inside the player's
-      // transform. See PetRenderer.
-      if(hat == null && wings == null) {
+      // Walking pets live in PetRenderer -- they have their own position and
+      // heading, which cannot be expressed inside the player's transform. A
+      // perched one is the opposite: it is attached to the body, so it belongs
+      // here where that transform already exists.
+      com.iceclient.cosmetic.PetModel perched = perchedPet(p);
+
+      if(hat == null && wings == null && perched == null) {
          return;
       }
 
@@ -94,6 +97,10 @@ public final class AccessoryRenderer {
 
       if(wings != null) {
          drawWings(wings, p, pt);
+      }
+
+      if(perched != null) {
+         drawPerchedPet(perched, p, pt);
       }
 
       GlStateManager.enableCull();
@@ -151,6 +158,52 @@ public final class AccessoryRenderer {
       } else if("hat_halo".equals(c.getId())) {
          GlStateManager.translate(0.0F, -0.22F, 0.0F);
          ring(0.26F, 0.04F);
+      } else if("hat_tophat".equals(c.getId())) {
+         box(0.62F, 0.03F, 0.62F);                    // brim
+         GlStateManager.translate(0.0F, -0.03F, 0.0F);
+         box(0.40F, 0.34F, 0.40F);                    // crown
+         setColor(0x8FD4E8, 1.0F);
+         GlStateManager.translate(0.0F, -0.24F, 0.0F);
+         box(0.42F, 0.05F, 0.42F);                    // band
+      } else if("hat_visor".equals(c.getId())) {
+         box(0.50F, 0.05F, 0.50F);
+         GlStateManager.translate(0.0F, -0.01F, -0.22F);
+         box(0.44F, 0.03F, 0.22F);                    // brim, forward only
+      } else if("hat_horns".equals(c.getId())) {
+         for(int s = -1; s <= 1; s += 2) {
+            GlStateManager.pushMatrix();
+            GlStateManager.translate(s * 0.17F, 0.02F, 0.0F);
+            // Curved by stacking shrinking segments, each leaning further back.
+            for(int i = 0; i < 5; ++i) {
+               float f = 1.0F - i * 0.16F;
+               box(0.11F * f, 0.09F, 0.11F * f);
+               GlStateManager.translate(s * 0.018F, -0.085F, 0.030F);
+               GlStateManager.rotate(s * 4.0F, 0.0F, 0.0F, 1.0F);
+            }
+            GlStateManager.popMatrix();
+         }
+      } else if("hat_antlers".equals(c.getId())) {
+         for(int s = -1; s <= 1; s += 2) {
+            GlStateManager.pushMatrix();
+            GlStateManager.translate(s * 0.13F, 0.0F, 0.0F);
+
+            // Main beam, leaning out and back.
+            for(int i = 0; i < 4; ++i) {
+               box(0.06F, 0.10F, 0.06F);
+               GlStateManager.translate(s * 0.045F, -0.095F, 0.022F);
+            }
+
+            // Two tines off the beam.
+            GlStateManager.pushMatrix();
+            GlStateManager.rotate(s * 42.0F, 0.0F, 0.0F, 1.0F);
+            box(0.05F, 0.16F, 0.05F);
+            GlStateManager.popMatrix();
+
+            GlStateManager.translate(s * 0.02F, -0.09F, 0.0F);
+            GlStateManager.rotate(-s * 30.0F, 0.0F, 0.0F, 1.0F);
+            box(0.05F, 0.14F, 0.05F);
+            GlStateManager.popMatrix();
+         }
       }
 
       GlStateManager.popMatrix();
@@ -181,9 +234,22 @@ public final class AccessoryRenderer {
       float open = 30.0F + speed * 45.0F + flap;
 
       int rgb = c.getColor();
+      String id = c.getId();
 
       for(int side = -1; side <= 1; side += 2) {
-         featheredWing(side, rgb, beat, open);
+         if("wings_dragon".equals(id)) {
+            batWing(side, rgb, beat, open);
+         } else if("wings_crystal".equals(id)) {
+            crystalWing(side, rgb, beat, open);
+         } else if("wings_butterfly".equals(id)) {
+            butterflyWing(side, rgb, beat, open);
+         } else if("wings_mech".equals(id)) {
+            mechWing(side, rgb, beat, open);
+         } else if("wings_ethereal".equals(id)) {
+            etherealWing(side, rgb, beat, open);
+         } else {
+            featheredWing(side, rgb, beat, open);
+         }
       }
 
       GlStateManager.popMatrix();
@@ -202,44 +268,451 @@ public final class AccessoryRenderer {
     * flipped. Both are stated once, here.
     */
    private static void featheredWing(int side, int rgb, float beat, float open) {
-      // row -> { count, spread degrees, base length, depth, shade }
-      // Lengths are in this space's units, where 1 = 0.9375 blocks -- so the
-      // longest primaries reach about a block out from the shoulder, roughly a
-      // player's height across the pair. The first pass was half this and read
-      // as a shrug rather than a wingspan.
+      // Three rows, back to front, each shorter and paler than the one behind.
+      // { count, start along spine, end along spine, length, depth, shade }
+      //
+      // Counts are high and the spans overlap on purpose: a feather here is a
+      // flat quad, so what makes a wing look feathered is many of them lying
+      // over each other like roof tiles. The first versions used six or seven
+      // spaced apart, which is a comb, not a wing.
       float[][] rows = new float[][]{
-            {9.0F, 76.0F, 1.15F, 0.00F, 1.00F},
-            {7.0F, 64.0F, 0.82F, 0.05F, 0.87F},
-            {6.0F, 50.0F, 0.55F, 0.10F, 0.74F}};
-
-      // How far the whole wing lies back rather than out to the side. Driven by
-      // the flap, so the wings sweep back as they beat.
-      float sweep = 0.42F + (open - 30.0F) / 160.0F;
+            {14.0F, 0.10F, 1.00F, 0.86F, 0.000F, 1.00F},
+            {12.0F, 0.08F, 0.84F, 0.58F, 0.035F, 0.88F},
+            {10.0F, 0.06F, 0.66F, 0.36F, 0.070F, 0.76F}};
 
       for(float[] row : rows) {
          int count = (int)row[0];
-         float spread = row[1];
-         float length = row[2];
-         float depth = row[3];
-         float shade = row[4];
-
-         setColor(shade(rgb, shade), 0.95F);
 
          for(int i = 0; i < count; ++i) {
             float t = count == 1 ? 0.0F : (float)i / (float)(count - 1);
+            float u = row[1] + (row[2] - row[1]) * t;
 
-            // Fan from swept-down at the outside to raised near the shoulder.
-            float ang = (float)Math.toRadians(-26.0D + t * spread + beat * 3.0D * t);
-            float len = length * (0.64F + 0.36F * (float)Math.sin(t * Math.PI));
+            // Each feather a shade off its neighbour, so the overlaps are
+            // visible as separate feathers rather than one solid mass.
+            float alt = i % 2 == 0 ? 1.0F : 0.93F;
+            setColor(shade(rgb, row[5] * alt), 0.97F);
 
-            float ux = (float)Math.cos(ang);      // outward
-            float uy = -(float)Math.sin(ang);     // up (negated: +y is down)
+            float[] root = spinePoint(side, u, beat, open, row[4]);
 
-            feather(side * 0.06F, 0.0F, depth,
-                  side * ux * len, uy * len, depth + len * sweep,
-                  0.085F + 0.05F * (1.0F - t));
+            // Longest in the outer third rather than the middle -- the widest
+            // part of a wing is past halfway, and that is what stops it reading
+            // as a symmetrical leaf.
+            float bias = (float)Math.sin(Math.pow(t, 0.72D) * Math.PI);
+            float len = row[3] * (0.42F + 0.58F * bias);
+
+            float[] tip = trailingPoint(root, side, len, beat, open, u);
+
+            // Wide enough to overlap the next feather along.
+            feather(root[0], root[1], root[2], tip[0], tip[1], tip[2],
+                  0.085F + 0.045F * (1.0F - t));
          }
       }
+   }
+
+   /**
+    * A point along the wing's leading edge, {@code u} from 0 at the shoulder to
+    * 1 at the tip.
+    *
+    * <p>Wings are built on a curve rather than a fan. Every earlier version
+    * radiated straight feathers out of a single point at the shoulder, which
+    * reads as a spiky fan from any angle -- a real wing has a spine that arcs up
+    * and out, with feathers hanging along its length. Putting that arc in one
+    * function also means the four wing types share a skeleton and differ only in
+    * what they hang off it.
+    */
+   private static float[] spinePoint(int side, float u, float beat, float open, float depth) {
+      // Rises steeply out of the shoulder before spreading. Wings that leave the
+      // back at a shallow angle read as arms held out; the height is what makes
+      // the silhouette a wing.
+      float lift = (float)Math.toRadians(46.0D + open * 0.30D + beat * 7.0D * u);
+      float curl = u * u * 0.55F;          // the tip curls up and forward
+      float reach = 1.24F * u;
+
+      return new float[]{
+            side * (reach * (float)Math.cos(lift) + curl * 0.06F),
+            -(reach * (float)Math.sin(lift) + curl * 0.42F),
+            depth + reach * (0.18F + 0.16F * u)};
+   }
+
+   /** Where something hanging off the spine at {@code root} ends up. */
+   private static float[] trailingPoint(float[] root, int side, float len,
+                                        float beat, float open, float u) {
+      // Trailing edge sweeps back along the body and downward, swinging with
+      // the beat and further out toward the tip.
+      float drop = (float)Math.toRadians(62.0D - open * 0.20D - beat * 7.0D * u);
+
+      return new float[]{
+            root[0] + side * len * (float)Math.cos(drop) * 0.30F,
+            root[1] + len * (float)Math.sin(drop),
+            root[2] + len * 0.30F};
+   }
+
+   /**
+    * Bat wings: membrane webbed between long fingers.
+    *
+    * <p>Built as the panels <em>between</em> adjacent fingers rather than as
+    * separate feathers, which is what makes it read as one continuous skin with
+    * a scalloped trailing edge instead of a fan.
+    */
+   private static void batWing(int side, int rgb, float beat, float open) {
+      int fingers = 5;
+      float[][] tip = new float[fingers][];
+
+      // Fingers radiate from the shoulder to points spaced along the spine, each
+      // overshooting it, so the membrane between them scallops the way skin does.
+      for(int i = 0; i < fingers; ++i) {
+         float t = (float)i / (float)(fingers - 1);
+         float[] s = spinePoint(side, 0.35F + t * 0.65F, beat, open, 0.0F);
+         float reach = 1.0F + 0.30F * (float)Math.sin((0.2D + t * 0.7D) * Math.PI);
+
+         tip[i] = new float[]{s[0] * reach, s[1] * reach + t * 0.16F, s[2] * reach};
+      }
+
+      setColor(shade(rgb, 0.78F), 0.93F);
+      Tessellator tess = Tessellator.getInstance();
+      WorldRenderer wr = tess.getWorldRenderer();
+
+      for(int i = 0; i < fingers - 1; ++i) {
+         wr.begin(6, DefaultVertexFormats.POSITION);
+         wr.pos(side * 0.06F, 0.0F, 0.0F).endVertex();
+         wr.pos(tip[i][0], tip[i][1], tip[i][2]).endVertex();
+         // Mid point pulled in and down: that sag is what makes it read as skin
+         // stretched between bones rather than a flat panel.
+         wr.pos((tip[i][0] + tip[i + 1][0]) * 0.44F,
+               (tip[i][1] + tip[i + 1][1]) * 0.44F + 0.13F,
+               (tip[i][2] + tip[i + 1][2]) * 0.44F).endVertex();
+         wr.pos(tip[i + 1][0], tip[i + 1][1], tip[i + 1][2]).endVertex();
+         tess.draw();
+      }
+
+      // Fingers drawn over the membrane, so the ribs stay readable.
+      setColor(shade(rgb, 1.35F), 1.0F);
+      for(int i = 0; i < fingers; ++i) {
+         feather(side * 0.05F, 0.0F, 0.0F, tip[i][0], tip[i][1], tip[i][2], 0.030F);
+      }
+   }
+
+   /** Crystal wings: a handful of hard angular shards rather than a fan. */
+   private static void crystalWing(int side, int rgb, float beat, float open) {
+      int shards = 7;
+
+      for(int i = 0; i < shards; ++i) {
+         float t = (float)i / (float)(shards - 1);
+         float u = 0.18F + t * 0.82F;
+
+         float[] root = spinePoint(side, u, beat, open, 0.0F);
+
+         // Shards point outward past the spine rather than hanging back from
+         // it -- hard and radiating, the opposite of a feather's droop.
+         float grow = 1.20F + 0.30F * (float)Math.sin(t * Math.PI);
+         float[] tip = new float[]{root[0] * grow, root[1] * grow - 0.05F, root[2] * grow};
+
+         // Alternating brightness keeps adjacent shards distinguishable without
+         // any lighting to separate them.
+         setColor(shade(rgb, i % 2 == 0 ? 1.15F : 0.80F), 0.90F);
+         shard(side * 0.05F, 0.0F, 0.0F, tip[0], tip[1], tip[2],
+               0.085F + 0.055F * (1.0F - t));
+      }
+   }
+
+   /**
+    * The pet to draw on this player's shoulder, or null if theirs walks.
+    *
+    * <p>The user's choice wins; a pet's own {@code perchByDefault} only decides
+    * what happens before anyone has expressed one.
+    */
+   static com.iceclient.cosmetic.PetModel perchedPet(EntityPlayer p) {
+      com.iceclient.cosmetic.PetModel m = petModelFor(p);
+      if(m == null) {
+         return null;
+      }
+
+      return CosmeticManager.isPetOnShoulder() || m.perchByDefault ? m : null;
+   }
+
+   /** Resolves a player's pet to a model, custom or catalogue. */
+   static com.iceclient.cosmetic.PetModel petModelFor(EntityPlayer p) {
+      if(p == Minecraft.getMinecraft().thePlayer
+            && CosmeticManager.getCustomPet() != null) {
+         return com.iceclient.cosmetic.CustomPets.get(CosmeticManager.getCustomPet());
+      }
+
+      Cosmetic c = worn(p, CosmeticType.PET);
+      return c == null ? null : BuiltInPets.get(c.getId());
+   }
+
+   /**
+    * Draws a pet sitting on the player's right shoulder.
+    *
+    * <p>Rides the body rather than the head, so it stays put while you look
+    * around -- a pet that swung with the camera would read as attached to the
+    * face. It leans into turns and settles with a slow breath, which is what
+    * stops it looking welded on.
+    */
+   private void drawPerchedPet(com.iceclient.cosmetic.PetModel m, EntityPlayer p, float pt) {
+      GlStateManager.pushMatrix();
+
+      // Outboard of the head, on top of the arm.
+      //
+      // The head is 8 units wide, so it reaches 0.25 either side of centre, and
+      // a pet roughly 0.3 wide centred at 0.30 still overlapped it by a third --
+      // which is the clipping. Centre goes to 0.42, clear of the head entirely,
+      // and down to shoulder level rather than up alongside the jaw.
+      GlStateManager.translate(-0.42F, 0.04F, 0.02F);
+
+      // Lean against the turn, and breathe.
+      float turn = wrapDeg(p.renderYawOffset - p.prevRenderYawOffset);
+      float lean = Math.max(-14.0F, Math.min(14.0F, turn * 0.8F));
+      float breathe = (float)Math.sin((p.ticksExisted + pt) * 0.08D) * 0.008F;
+
+      GlStateManager.rotate(lean, 0.0F, 0.0F, 1.0F);
+      GlStateManager.translate(0.0F, breathe, 0.0F);
+
+      // Face forward: the pet's +z is its front, and -z is the player's front
+      // in this space, so it needs turning about.
+      GlStateManager.rotate(180.0F, 0.0F, 1.0F, 0.0F);
+
+      // Smaller than on the ground: at full size a pet is as tall as the head,
+      // which looks less like a companion and more like a growth.
+      float s = m.scale * 0.58F;
+      GlStateManager.scale(s, s, s);
+
+      for(com.iceclient.cosmetic.PetModel.Part part : m.parts) {
+         GlStateManager.pushMatrix();
+         // Pet models are built +y up; this space is +y down.
+         GlStateManager.translate(part.x, -part.y, part.z);
+         setColor(part.color, part.alpha);
+
+         if("spike".equals(part.shape)) {
+            if(!part.down) {
+               GlStateManager.rotate(180.0F, 1.0F, 0.0F, 0.0F);
+            }
+            spike(part.w, part.h);
+         } else {
+            box(part.w, part.h, part.d);
+         }
+
+         GlStateManager.popMatrix();
+      }
+
+      GlStateManager.popMatrix();
+   }
+
+   private static float wrapDeg(float d) {
+      while(d < -180.0F) {
+         d += 360.0F;
+      }
+
+      while(d >= 180.0F) {
+         d -= 360.0F;
+      }
+
+      return d;
+   }
+
+   /**
+    * Butterfly: two broad rounded panels a side, with spots.
+    *
+    * <p>Panels rather than a fan, and rounded rather than pointed -- the whole
+    * read comes from having a large continuous area, which is the opposite of
+    * every other wing here.
+    */
+   private static void butterflyWing(int side, int rgb, float beat, float open) {
+      // Upper panel reaches along the spine; the lower one is shorter and hangs
+      // below it, which is the shape that says butterfly rather than bird.
+      // { u along spine, panel half-height, depth, shade, drop }
+      float[][] panels = new float[][]{
+            {0.92F, 0.46F, 0.00F, 1.00F, 0.00F},
+            {0.62F, 0.34F, 0.05F, 0.78F, 0.34F}};
+
+      for(float[] p : panels) {
+         float[] c = spinePoint(side, p[0], beat, open, p[2]);
+         float cx = c[0];
+         float cy = c[1] + p[4];
+         float cz = c[2];
+
+         setColor(shade(rgb, p[3]), 0.91F);
+         roundPanel(side, cx, cy, cz, p[1], p[2]);
+
+         // Pale eyespots toward the outer edge, the one marking that reads at
+         // distance when the panel itself is a flat colour.
+         setColor(shade(rgb, 1.7F), 0.88F);
+         spot(cx * 0.70F, cy * 0.70F, cz * 0.70F + 0.005F, p[1] * 0.26F);
+         spot(cx * 0.42F, cy * 0.42F - p[1] * 0.32F, cz * 0.42F + 0.005F, p[1] * 0.15F);
+      }
+   }
+
+   /** A rounded blade from the shoulder out to a centre point. */
+   private static void roundPanel(int side, float cx, float cy, float cz,
+                                  float half, float rootZ) {
+      float len = (float)Math.sqrt(cx * cx + cy * cy);
+      if(len < 1.0E-4F) {
+         return;
+      }
+
+      float ux = cx / len;
+      float uy = cy / len;
+      float px = -uy * half;
+      float py = ux * half;
+
+      Tessellator tess = Tessellator.getInstance();
+      WorldRenderer wr = tess.getWorldRenderer();
+      wr.begin(6, DefaultVertexFormats.POSITION);
+
+      wr.pos(side * 0.05F, 0.0F, rootZ).endVertex();
+
+      // Ellipse-ish outline, fatter on the leading edge than the trailing one.
+      for(int i = 0; i <= 12; ++i) {
+         float t = i / 12.0F;
+         double a = Math.PI * (t - 0.5D);
+         float along = 0.45F + 0.55F * (float)Math.cos(a);
+         float across = (float)Math.sin(a);
+         float fat = across > 0.0F ? 1.0F : 0.72F;
+
+         wr.pos(cx * along + px * across * fat,
+               cy * along + py * across * fat,
+               rootZ + (cz - rootZ) * along).endVertex();
+      }
+
+      tess.draw();
+   }
+
+   /** A small disc, for butterfly markings. */
+   private static void spot(float x, float y, float z, float r) {
+      Tessellator tess = Tessellator.getInstance();
+      WorldRenderer wr = tess.getWorldRenderer();
+      wr.begin(6, DefaultVertexFormats.POSITION);
+      wr.pos(x, y, z).endVertex();
+
+      for(int a = 0; a <= 360; a += 30) {
+         double rad = Math.toRadians(a);
+         wr.pos(x + (float)Math.cos(rad) * r, y + (float)Math.sin(rad) * r, z).endVertex();
+      }
+
+      tess.draw();
+   }
+
+   /**
+    * Mechanical: hard plates on a jointed spar.
+    *
+    * <p>Everything here is straight-edged and evenly spaced on purpose. The
+    * other wings are organic and asymmetric; regularity is what makes this one
+    * read as built rather than grown.
+    */
+   private static void mechWing(int side, int rgb, float beat, float open) {
+      int plates = 5;
+
+      // Spar along the spine first, so the plates read as mounted to it.
+      setColor(shade(rgb, 0.50F), 1.0F);
+      float[] end = spinePoint(side, 1.0F, beat, open, 0.0F);
+      feather(side * 0.05F, 0.0F, 0.0F, end[0], end[1], end[2], 0.042F);
+
+      for(int i = 0; i < plates; ++i) {
+         float t = (float)i / (float)(plates - 1);
+         float u = 0.22F + t * 0.74F;
+
+         float[] root = spinePoint(side, u, beat, open, 0.02F * i);
+         // Plates hang square off the spar and shorten toward the tip, which is
+         // the regularity that makes this read as built rather than grown.
+         float len = 0.52F * (1.0F - t * 0.45F);
+         float[] tip = trailingPoint(root, side, len, beat, open, u);
+
+         setColor(shade(rgb, i % 2 == 0 ? 0.95F : 0.76F), 0.96F);
+         plate(root[0], root[1], root[2], tip[0], tip[1], tip[2], 0.13F, 0.075F);
+
+         // Bright strip along each plate's leading edge.
+         setColor(shade(rgb, 1.6F), 1.0F);
+         plate(root[0], root[1], root[2] + 0.004F,
+               root[0] + (tip[0] - root[0]) * 0.94F,
+               root[1] + (tip[1] - root[1]) * 0.94F,
+               tip[2] + 0.004F, 0.028F, 0.016F);
+      }
+   }
+
+   /** A straight-edged quad, wide at the root and narrower at the tip. */
+   private static void plate(float rx, float ry, float rz,
+                             float tx, float ty, float tz,
+                             float rootW, float tipW) {
+      float dx = tx - rx;
+      float dy = ty - ry;
+      float len = (float)Math.sqrt(dx * dx + dy * dy);
+      if(len < 1.0E-4F) {
+         return;
+      }
+
+      float px = -dy / len;
+      float py = dx / len;
+
+      Tessellator tess = Tessellator.getInstance();
+      WorldRenderer wr = tess.getWorldRenderer();
+      wr.begin(7, DefaultVertexFormats.POSITION);
+      wr.pos(rx + px * rootW, ry + py * rootW, rz).endVertex();
+      wr.pos(tx + px * tipW, ty + py * tipW, tz).endVertex();
+      wr.pos(tx - px * tipW, ty - py * tipW, tz).endVertex();
+      wr.pos(rx - px * rootW, ry - py * rootW, rz).endVertex();
+      tess.draw();
+   }
+
+   /**
+    * Ethereal: stacked translucent arcs with no solid edge.
+    *
+    * <p>Deliberately has no outline at all -- each layer is fainter and slightly
+    * larger than the one under it, so the shape is suggested by accumulation
+    * rather than drawn. Depth-writing stays off so the layers blend into each
+    * other instead of occluding.
+    */
+   private static void etherealWing(int side, int rgb, float beat, float open) {
+      float sweep = 0.44F + (open - 30.0F) / 150.0F;
+      int layers = 5;
+
+      GlStateManager.depthMask(false);
+
+      for(int l = 0; l < layers; ++l) {
+         float grow = 1.0F + l * 0.11F;
+         float alpha = 0.36F - l * 0.055F;
+         float pulse = 1.0F + (float)Math.sin(beat * 2.0D + l * 0.8D) * 0.05F;
+
+         setColor(shade(rgb, 1.0F + l * 0.12F), Math.max(0.05F, alpha));
+
+         for(int i = 0; i < 6; ++i) {
+            float t = i / 5.0F;
+            float u = 0.20F + t * 0.80F;
+
+            float[] root = spinePoint(side, u, beat, open, 0.03F * l);
+            float len = 0.52F * grow * pulse * (0.55F + 0.45F * (float)Math.sin(t * Math.PI));
+            float[] tip = trailingPoint(root, side, len, beat, open, u);
+
+            feather(root[0], root[1], root[2],
+                  tip[0] * grow, tip[1] * grow, tip[2],
+                  0.095F + 0.04F * (1.0F - t));
+         }
+      }
+
+      GlStateManager.depthMask(true);
+   }
+
+   /** A four-point sliver: base quad pinching straight to a tip. */
+   private static void shard(float rx, float ry, float rz,
+                             float tx, float ty, float tz, float w) {
+      float dx = tx - rx;
+      float dy = ty - ry;
+      float len = (float)Math.sqrt(dx * dx + dy * dy);
+      if(len < 1.0E-4F) {
+         return;
+      }
+
+      float px = -dy / len * w;
+      float py = dx / len * w;
+
+      Tessellator tess = Tessellator.getInstance();
+      WorldRenderer wr = tess.getWorldRenderer();
+      wr.begin(6, DefaultVertexFormats.POSITION);
+      wr.pos(rx + px, ry + py, rz).endVertex();
+      wr.pos(rx + dx * 0.30F + px * 0.75F, ry + dy * 0.30F + py * 0.75F, rz + (tz - rz) * 0.30F).endVertex();
+      wr.pos(tx, ty, tz).endVertex();
+      wr.pos(rx + dx * 0.30F - px * 0.75F, ry + dy * 0.30F - py * 0.75F, rz + (tz - rz) * 0.30F).endVertex();
+      wr.pos(rx - px, ry - py, rz).endVertex();
+      tess.draw();
    }
 
    /**
@@ -275,6 +748,24 @@ public final class AccessoryRenderer {
       wr.pos(rx - px * 0.6F, ry - py * 0.6F, rz).endVertex();
 
       tess.draw();
+   }
+
+   /** HSV to RGB, for the rainbow trail. h/s/v are 0-1. */
+   private static float[] hsv(float h, float s, float v) {
+      float i = (float)Math.floor(h * 6.0F);
+      float f = h * 6.0F - i;
+      float p = v * (1.0F - s);
+      float q = v * (1.0F - f * s);
+      float t = v * (1.0F - (1.0F - f) * s);
+
+      switch((int)i % 6) {
+         case 0: return new float[]{v, t, p};
+         case 1: return new float[]{q, v, p};
+         case 2: return new float[]{p, v, t};
+         case 3: return new float[]{p, q, v};
+         case 4: return new float[]{t, p, v};
+         default: return new float[]{v, p, q};
+      }
    }
 
    private static int shade(int rgb, float f) {
@@ -329,35 +820,91 @@ public final class AccessoryRenderer {
       GlStateManager.blendFunc(770, 771);
       GlStateManager.depthMask(false);
 
-      Tessellator tess = Tessellator.getInstance();
-      WorldRenderer wr = tess.getWorldRenderer();
-      wr.begin(5, DefaultVertexFormats.POSITION_COLOR);
-
-      int rgb = c.getColor();
-      float r = (rgb >> 16 & 255) / 255.0F;
-      float g = (rgb >> 8 & 255) / 255.0F;
-      float b = (rgb & 255) / 255.0F;
+      // Two-sided: a ribbon is a single plane, so with culling on it vanishes
+      // from whichever side faces away.
+      GlStateManager.disableCull();
 
       // Points are stored in world space, so the current camera position comes
       // off here rather than being baked in when they were recorded.
       net.minecraft.client.renderer.entity.RenderManager rm =
             Minecraft.getMinecraft().getRenderManager();
 
-      for(int i = 0; i < pts.size(); ++i) {
-         double[] q = pts.get(i);
-         float t = (float)i / (float)(pts.size() - 1);
-         float alpha = t * 0.55F;              // oldest points faintest
-         float w = 0.10F + t * 0.16F;
+      boolean rainbow = "trail_rainbow".equals(c.getId());
+      int rgb = c.getColor();
+      long now = System.currentTimeMillis();
 
-         double x = q[0] - rm.viewerPosX;
-         double y = q[1] - rm.viewerPosY;
-         double z = q[2] - rm.viewerPosZ;
+      // Drawn twice, in perpendicular planes. A flat ribbon disappears entirely
+      // when you look along its edge, which is exactly what happens whenever you
+      // run straight at or away from someone -- the case it most needs to work.
+      for(int pass = 0; pass < 2; ++pass) {
+         Tessellator tess = Tessellator.getInstance();
+         WorldRenderer wr = tess.getWorldRenderer();
+         wr.begin(5, DefaultVertexFormats.POSITION_COLOR);
 
-         wr.pos(x, y + 1.0D - w, z).color(r, g, b, alpha).endVertex();
-         wr.pos(x, y + 1.0D + w, z).color(r, g, b, alpha).endVertex();
+         for(int i = 0; i < pts.size(); ++i) {
+            double[] q = pts.get(i);
+            float t = (float)i / (float)(pts.size() - 1);
+
+            float alpha = t * t * 0.62F;          // fades off faster at the tail
+            float w = 0.06F + t * 0.20F;          // and narrows to a point
+
+            float r;
+            float g;
+            float b;
+
+            if(rainbow) {
+               // Hue runs along the ribbon and drifts over time, so it reads as
+               // a moving band rather than a flat colour that happens to cycle.
+               float[] c3 = hsv((t * 0.75F + now / 2600.0F) % 1.0F, 0.85F, 1.0F);
+               r = c3[0];
+               g = c3[1];
+               b = c3[2];
+            } else {
+               // Everything else brightens toward the near end, which gives the
+               // ribbon a hot core trailing into its own colour.
+               float lift = 0.55F + 0.45F * t;
+               r = Math.min(1.0F, (rgb >> 16 & 255) / 255.0F * lift + t * 0.25F);
+               g = Math.min(1.0F, (rgb >> 8 & 255) / 255.0F * lift + t * 0.25F);
+               b = Math.min(1.0F, (rgb & 255) / 255.0F * lift + t * 0.25F);
+            }
+
+            double x = q[0] - rm.viewerPosX;
+            double y = q[1] - rm.viewerPosY + 1.0D;
+            double z = q[2] - rm.viewerPosZ;
+
+            // A slow curl, so a trail left while standing still is not a
+            // dead straight line.
+            double curl = Math.sin(i * 0.55D + now / 420.0D) * 0.05D * t;
+
+            if(pass == 0) {
+               wr.pos(x, y - w + curl, z).color(r, g, b, alpha).endVertex();
+               wr.pos(x, y + w + curl, z).color(r, g, b, alpha).endVertex();
+            } else {
+               // Horizontal, offset along the direction of travel so the two
+               // planes cross rather than sitting on top of each other.
+               double dx = 0.0D;
+               double dz = 0.0D;
+
+               if(i > 0) {
+                  double[] prev = pts.get(i - 1);
+                  double vx = q[0] - prev[0];
+                  double vz = q[2] - prev[2];
+                  double len = Math.sqrt(vx * vx + vz * vz);
+                  if(len > 1.0E-4D) {
+                     dx = -vz / len * w;
+                     dz = vx / len * w;
+                  }
+               }
+
+               wr.pos(x - dx, y + curl, z - dz).color(r, g, b, alpha * 0.75F).endVertex();
+               wr.pos(x + dx, y + curl, z + dz).color(r, g, b, alpha * 0.75F).endVertex();
+            }
+         }
+
+         tess.draw();
       }
 
-      tess.draw();
+      GlStateManager.enableCull();
 
       GlStateManager.depthMask(true);
       GlStateManager.disableBlend();
