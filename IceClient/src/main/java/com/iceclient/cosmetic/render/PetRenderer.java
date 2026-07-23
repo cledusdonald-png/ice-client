@@ -37,6 +37,8 @@ public final class PetRenderer {
 
    /** How far behind the owner the pet tries to sit. */
    private static final double FOLLOW_DIST = 1.15D;
+   /** Sideways offset, so the owner's own body does not hide the pet. */
+   private static final double SIDE_OFFSET = 0.35D;
    /** Past this it gives up and teleports; otherwise it never catches a sprinting player. */
    private static final double TELEPORT_DIST = 12.0D;
 
@@ -94,9 +96,15 @@ public final class PetRenderer {
       }
 
       // Target: behind the owner, offset to one side so it is not hidden by them.
-      double yawRad = Math.toRadians(p.renderYawOffset);
-      double bx = p.posX - Math.sin(-yawRad) * -FOLLOW_DIST - Math.cos(-yawRad) * 0.35D;
-      double bz = p.posZ - Math.cos(-yawRad) * FOLLOW_DIST + Math.sin(-yawRad) * 0.35D;
+      //
+      // Minecraft's forward vector for yaw t is (-sin t, cos t), so behind is
+      // (sin t, -cos t) and right is (cos t, sin t). The first version had the
+      // Z term right and the X term inverted, which put the pet ahead of the
+      // owner on one axis only -- so it ran across in front rather than
+      // trailing, and the direction depended on which way you faced.
+      double t = Math.toRadians(p.renderYawOffset);
+      double bx = p.posX + Math.sin(t) * FOLLOW_DIST + Math.cos(t) * SIDE_OFFSET;
+      double bz = p.posZ - Math.cos(t) * FOLLOW_DIST + Math.sin(t) * SIDE_OFFSET;
       double by = p.posY;
 
       if(!s.placed) {

@@ -39,6 +39,14 @@ public final class CosmeticRegistry {
             Cosmetic.Rarity.EPIC, 1500,
             "For people who spend their evenings inside a wall.", "cape_obsidian.png"));
 
+      add(new Cosmetic("cape_glacier", "Glacier", CosmeticType.CAPE,
+            Cosmetic.Rarity.EPIC, 2000,
+            "Deep blue, split by a pale crevasse.", "cape_glacier.png"));
+
+      add(new Cosmetic("cape_ember", "Ember", CosmeticType.CAPE,
+            Cosmetic.Rarity.LEGENDARY, 2400,
+            "The one warm thing in the wardrobe.", "cape_ember.png"));
+
       add(new Cosmetic("cape_founder", "Founder", CosmeticType.CAPE,
             Cosmetic.Rarity.LEGENDARY, 0,
             "Given, not bought. Early Ice Client testers.", "cape_founder.png"));
@@ -77,6 +85,14 @@ public final class CosmeticRegistry {
       add(new Cosmetic("pet_polarbear", "Polar Bear", CosmeticType.PET,
             Cosmetic.Rarity.EPIC, 1800,
             "Small, for a bear. Follows you everywhere.", null, 0xF4F7F9));
+
+      add(new Cosmetic("pet_penguin", "Penguin", CosmeticType.PET,
+            Cosmetic.Rarity.RARE, 1100,
+            "Waddles. Orange feet. Deeply serious.", null, 0x1B2028));
+
+      add(new Cosmetic("pet_yeti", "Yeti", CosmeticType.PET,
+            Cosmetic.Rarity.LEGENDARY, 2200,
+            "Big head, short legs, no menace whatsoever.", null, 0xF7FAFC));
 
       // ---- trails ------------------------------------------------------
       add(new Cosmetic("trail_frost", "Frost Trail", CosmeticType.TRAIL,

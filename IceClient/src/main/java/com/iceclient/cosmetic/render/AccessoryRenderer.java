@@ -54,7 +54,11 @@ public final class AccessoryRenderer {
       Cosmetic trail = worn(p, CosmeticType.TRAIL);
 
       if(trail != null) {
-         recordTrail(p, event.x, event.y, event.z);
+         // WORLD coordinates, not event.x/y/z -- those are relative to the
+         // camera, so storing them meant every point in the trail moved as soon
+         // as the camera did and the whole thing smeared. The camera offset is
+         // applied at draw time instead, where it is current.
+         recordTrail(p, p.posX, p.posY, p.posZ);
          drawTrail(p, trail);
       }
 
@@ -199,10 +203,14 @@ public final class AccessoryRenderer {
     */
    private static void featheredWing(int side, int rgb, float beat, float open) {
       // row -> { count, spread degrees, base length, depth, shade }
+      // Lengths are in this space's units, where 1 = 0.9375 blocks -- so the
+      // longest primaries reach about a block out from the shoulder, roughly a
+      // player's height across the pair. The first pass was half this and read
+      // as a shrug rather than a wingspan.
       float[][] rows = new float[][]{
-            {7.0F, 68.0F, 0.66F, 0.00F, 1.00F},
-            {6.0F, 58.0F, 0.48F, 0.045F, 0.87F},
-            {5.0F, 46.0F, 0.33F, 0.090F, 0.74F}};
+            {9.0F, 76.0F, 1.15F, 0.00F, 1.00F},
+            {7.0F, 64.0F, 0.82F, 0.05F, 0.87F},
+            {6.0F, 50.0F, 0.55F, 0.10F, 0.74F}};
 
       // How far the whole wing lies back rather than out to the side. Driven by
       // the flap, so the wings sweep back as they beat.
@@ -227,9 +235,9 @@ public final class AccessoryRenderer {
             float ux = (float)Math.cos(ang);      // outward
             float uy = -(float)Math.sin(ang);     // up (negated: +y is down)
 
-            feather(side * 0.045F, 0.0F, depth,
+            feather(side * 0.06F, 0.0F, depth,
                   side * ux * len, uy * len, depth + len * sweep,
-                  0.055F + 0.03F * (1.0F - t));
+                  0.085F + 0.05F * (1.0F - t));
          }
       }
    }
@@ -330,14 +338,23 @@ public final class AccessoryRenderer {
       float g = (rgb >> 8 & 255) / 255.0F;
       float b = (rgb & 255) / 255.0F;
 
+      // Points are stored in world space, so the current camera position comes
+      // off here rather than being baked in when they were recorded.
+      net.minecraft.client.renderer.entity.RenderManager rm =
+            Minecraft.getMinecraft().getRenderManager();
+
       for(int i = 0; i < pts.size(); ++i) {
          double[] q = pts.get(i);
          float t = (float)i / (float)(pts.size() - 1);
          float alpha = t * 0.55F;              // oldest points faintest
          float w = 0.10F + t * 0.16F;
 
-         wr.pos(q[0], q[1] + 1.0D - w, q[2]).color(r, g, b, alpha).endVertex();
-         wr.pos(q[0], q[1] + 1.0D + w, q[2]).color(r, g, b, alpha).endVertex();
+         double x = q[0] - rm.viewerPosX;
+         double y = q[1] - rm.viewerPosY;
+         double z = q[2] - rm.viewerPosZ;
+
+         wr.pos(x, y + 1.0D - w, z).color(r, g, b, alpha).endVertex();
+         wr.pos(x, y + 1.0D + w, z).color(r, g, b, alpha).endVertex();
       }
 
       tess.draw();

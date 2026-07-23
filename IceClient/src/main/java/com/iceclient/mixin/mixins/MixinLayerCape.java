@@ -33,12 +33,16 @@ public class MixinLayerCape {
          return;
       }
 
-      boolean wearingIce = player == net.minecraft.client.Minecraft.getMinecraft().thePlayer
+      boolean self = player == net.minecraft.client.Minecraft.getMinecraft().thePlayer;
+
+      boolean wearingIce = self
             ? CosmeticManager.getEquippedItem(CosmeticType.CAPE) != null
                   || CosmeticManager.getCustomCape() != null
             : CosmeticManager.getRemote(player.getName(), CosmeticType.CAPE) != null;
 
-      if (wearingIce) {
+      // Only your own vanilla cape can be hidden by the toggle: it is a local
+      // preference, and blanking other people's would be deciding for them.
+      if (wearingIce || (self && CosmeticManager.isVanillaCapeHidden())) {
          ci.cancel();
       }
    }

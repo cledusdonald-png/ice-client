@@ -43,6 +43,23 @@ public final class CosmeticManager {
     */
    private static String customCape;
 
+   /**
+    * Whether to hide the Mojang/Optifine cape even with no Ice cape on.
+    *
+    * <p>Separate from equipping, because "wear an Ice cape" and "stop wearing
+    * the vanilla one" are different wishes. Hiding was previously only a side
+    * effect of equipping, which left no way to simply take the vanilla cape off.
+    */
+   private static boolean hideVanillaCape;
+
+   public static boolean isVanillaCapeHidden() {
+      return hideVanillaCape;
+   }
+
+   public static void setVanillaCapeHidden(boolean v) {
+      hideVanillaCape = v;
+   }
+
    /** A pet from the user's own folder, or null. Same reasoning as customCape. */
    private static String customPet;
 
@@ -250,15 +267,8 @@ public final class CosmeticManager {
       remote.clear();
    }
 
-   /**
-    * Emotes are catalogued but not yet animated.
-    *
-    * <p>Playing one means driving the player model's limb angles every frame and
-    * getting that pose to other clients, neither of which exists yet. This
-    * returns false so the wardrobe can show emotes as "coming soon" rather than
-    * offering a button that does nothing.
-    */
+   /** Emotes animate the model via MixinModelBiped and sync through /worn. */
    public static boolean canPlayEmote() {
-      return false;
+      return true;
    }
 }

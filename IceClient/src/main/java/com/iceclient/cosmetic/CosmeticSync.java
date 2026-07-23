@@ -96,6 +96,16 @@ public final class CosmeticSync {
       body.addProperty("name", name);
       body.addProperty("server", server);
       body.add("equipped", equipped);
+
+      // An emote in flight is sent with the time it began, so a client that
+      // receives it late can start partway through -- or skip it entirely if it
+      // has already finished -- rather than replaying it from the top.
+      String emote = EmoteManager.localEmote();
+      if(emote != null) {
+         body.addProperty("emote", emote);
+         body.addProperty("emoteAt", Long.valueOf(EmoteManager.localEmoteStart()));
+      }
+
       return body.toString();
    }
 
@@ -166,6 +176,11 @@ public final class CosmeticSync {
                if(slots.has(t.name())) {
                   CosmeticManager.setRemote(who, t, slots.get(t.name()).getAsString());
                }
+            }
+
+            if(slots.has("emote") && slots.has("emoteAt")) {
+               EmoteManager.startRemote(who, slots.get("emote").getAsString(),
+                     slots.get("emoteAt").getAsLong());
             }
          }
       } catch (Exception ignored) {

@@ -18,6 +18,7 @@
     "MixinBlockBreakable",
     "MixinGuiChat",
     "MixinRenderManager",
-    "MixinLayerCape"
+    "MixinLayerCape",
+    "MixinModelBiped"
   ]
 }

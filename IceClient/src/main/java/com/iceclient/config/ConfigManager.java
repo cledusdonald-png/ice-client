@@ -139,6 +139,7 @@ public final class ConfigManager {
    private static JsonObject saveCosmetics() {
       JsonObject c = new JsonObject();
       c.addProperty("balance", Integer.valueOf(CosmeticManager.getBalance()));
+      c.addProperty("hideVanillaCape", Boolean.valueOf(CosmeticManager.isVanillaCapeHidden()));
 
       com.google.gson.JsonArray owned = new com.google.gson.JsonArray();
       for(String id : CosmeticManager.getOwned()) {
@@ -168,6 +169,10 @@ public final class ConfigManager {
 
          if(c.has("balance")) {
             CosmeticManager.setBalance(c.get("balance").getAsInt());
+         }
+
+         if(c.has("hideVanillaCape")) {
+            CosmeticManager.setVanillaCapeHidden(c.get("hideVanillaCape").getAsBoolean());
          }
 
          if(c.has("owned")) {

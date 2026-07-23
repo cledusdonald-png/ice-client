@@ -36,6 +36,8 @@ const PRICES = {
   cape_frost: 500,
   cape_aurora: 1500,
   cape_obsidian: 1500,
+  cape_glacier: 2000,
+  cape_ember: 2400,
   cape_founder: -1,      // granted only
 
   hat_beanie: 200,
@@ -47,6 +49,8 @@ const PRICES = {
 
   pet_snowman: 900,
   pet_polarbear: 1800,
+  pet_yeti: 2200,
+  pet_penguin: 1100,
 
   trail_frost: 300,
   trail_aurora: 1400,
@@ -239,6 +243,15 @@ const server = http.createServer(async (req, res) => {
         if (!id) continue;
         const free = PRICES[id] === 0;
         if (free || p.owned.includes(id)) equipped[slot] = id;
+      }
+
+      // An emote is passed straight through with its own start time. Not
+      // validated against ownership like the slots above: the worst a forged
+      // one does is make your own character wave, and rejecting it would mean
+      // tracking emote purchases separately for no real gain.
+      if (body.emote && body.emoteAt) {
+        equipped.emote = String(body.emote).slice(0, 40);
+        equipped.emoteAt = Number(body.emoteAt) || 0;
       }
 
       worn.set(key, { name: p.name, server: srv, equipped, seen: Date.now() });

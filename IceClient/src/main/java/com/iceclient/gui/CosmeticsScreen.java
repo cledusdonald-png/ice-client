@@ -264,6 +264,36 @@ public class CosmeticsScreen extends GuiScreen {
 
       int y = this.listY - this.scroll;
 
+      // The Cape tab leads with a vanilla-cape switch. It belongs here rather
+      // than in a settings menu: it is the same decision as picking a cape, and
+      // this is where you are when you make it.
+      if(this.tabs[this.tab] == CosmeticType.CAPE) {
+         boolean hidden = CosmeticManager.isVanillaCapeHidden();
+         boolean covered = CosmeticManager.getEquippedItem(CosmeticType.CAPE) != null
+               || CosmeticManager.getCustomCape() != null;
+         boolean hov = mouseX >= this.listX && mouseX <= this.listX + this.listW
+               && mouseY >= y && mouseY <= y + 20
+               && mouseY >= this.listY && mouseY <= this.listY + this.listH;
+
+         drawRect(this.listX, y, this.listX + this.listW, y + 20, hov ? CARD_HOVER : 0x900A1420);
+         drawRect(this.listX, y, this.listX + 2, y + 20, (hidden || covered) ? BAD : GOOD);
+
+         this.fontRendererObj.drawStringWithShadow("Vanilla Cape", this.listX + 8, y + 3, TEXT);
+         this.fontRendererObj.drawString(
+               covered ? "an Ice cape is over it" : "your Mojang / OptiFine cape",
+               this.listX + 8, y + 12, MUTED);
+
+         // "hidden" would imply the toggle did it, when an Ice cape is simply
+         // drawn in the same place.
+         String state = covered ? "covered" : (hidden ? "HIDDEN" : "SHOWN");
+         int col = covered ? MUTED : (hidden ? BAD : GOOD);
+         this.fontRendererObj.drawString(state,
+               this.listX + this.listW - this.fontRendererObj.getStringWidth(state) - 8,
+               y + 7, col);
+
+         y += 24;
+      }
+
       for(Cosmetic c : items) {
          if(y + rowH >= this.listY && y <= this.listY + this.listH) {
             boolean owned = CosmeticManager.owns(c.getId());
@@ -427,10 +457,10 @@ public class CosmeticsScreen extends GuiScreen {
       int bg;
       int fg;
 
-      if(this.selected.getType() == CosmeticType.EMOTE && !CosmeticManager.canPlayEmote()) {
-         label = "Coming soon";
-         bg = CARD_BG;
-         fg = MUTED;
+      if(this.selected.getType() == CosmeticType.EMOTE && CosmeticManager.owns(this.selected.getId())) {
+         label = "Play";
+         bg = hov ? 0xFF7FD8FF : ACCENT;
+         fg = 0xFF04202E;
       } else if(this.selected.getId().equals(CosmeticManager.getEquipped(this.selected.getType()))) {
          label = "Unequip";
          bg = hov ? CARD_HOVER : CARD_BG;
@@ -503,7 +533,23 @@ public class CosmeticsScreen extends GuiScreen {
       // list
       if(mouseX >= this.listX && mouseX <= this.listX + this.listW
             && mouseY >= this.listY && mouseY <= this.listY + this.listH) {
-         int idx = (mouseY - this.listY + this.scroll) / 26;
+         int rel = mouseY - this.listY + this.scroll;
+
+         // The vanilla-cape row sits above the list on the Cape tab and shifts
+         // everything below it; the offset has to match drawList's.
+         if(this.tabs[this.tab] == CosmeticType.CAPE) {
+            if(rel < 24) {
+               CosmeticManager.setVanillaCapeHidden(!CosmeticManager.isVanillaCapeHidden());
+               say(CosmeticManager.isVanillaCapeHidden()
+                     ? "Vanilla cape hidden."
+                     : "Vanilla cape shown.");
+               return;
+            }
+
+            rel -= 24;
+         }
+
+         int idx = rel / 26;
          List<Cosmetic> items = current();
          if(idx >= 0 && idx < items.size()) {
             this.selected = items.get(idx);
@@ -576,8 +622,12 @@ public class CosmeticsScreen extends GuiScreen {
    private void doAction() {
       Cosmetic c = this.selected;
 
-      if(c.getType() == CosmeticType.EMOTE && !CosmeticManager.canPlayEmote()) {
-         say("!Emotes aren't animated yet.");
+      // An owned emote plays rather than toggling, since "equipped" for an emote
+      // just means "bound to the key" and you almost always want to see it.
+      if(c.getType() == CosmeticType.EMOTE && CosmeticManager.owns(c.getId())) {
+         CosmeticManager.equip(c.getId());
+         com.iceclient.cosmetic.EmoteManager.start(this.mc.thePlayer, c.getId());
+         say("Bound to G — playing " + c.getName() + ".");
          return;
       }
 
